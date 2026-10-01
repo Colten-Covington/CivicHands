@@ -20,7 +20,7 @@ CivicHands is a community-care board for reporting local needs, coordinating saf
 
 Without `DATABASE_URL`, the home page shows clearly labeled sample reports, accounts are disabled, and the report API returns a service-unavailable response. With a database, only real reports are shown.
 
-For production, create the administrator accounts before sharing the site publicly, set `NODE_ENV=production` (secure cookies), and set `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` when running more than one instance.
+For production, configure `DATABASE_URL` in the deployment environment. Vercel runs the Drizzle migrations automatically during production builds; preview builds do not modify the production database. Create the administrator accounts before sharing the site publicly, set `NODE_ENV=production` (secure cookies), and set `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` when running more than one instance.
 
 ## Roles and workflows
 
