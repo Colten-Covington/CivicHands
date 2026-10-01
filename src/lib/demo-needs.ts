@@ -1,4 +1,7 @@
-export const demoNeeds = [
+import { APPROXIMATE_LOCATION, type MapNeed } from "@/lib/needs";
+
+/** Sample reports shown only when no database is configured. */
+export const demoNeeds: MapNeed[] = [
   {
     id: "ditch-grass",
     title: "Tall grass blocking the sidewalk",
@@ -10,8 +13,11 @@ export const demoNeeds = [
     longitude: -94.9162,
     city: "Texas City",
     status: "open",
-    reporterName: "A neighbor",
     createdAt: "Today",
+    privateLocation: null,
+    approximate: false,
+    action: "demo",
+    offerId: null,
   },
   {
     id: "fallen-limb",
@@ -24,8 +30,11 @@ export const demoNeeds = [
     longitude: -94.9057,
     city: "Texas City",
     status: "referred",
-    reporterName: "A passerby",
     createdAt: "18 min ago",
+    privateLocation: null,
+    approximate: false,
+    action: "demo",
+    offerId: null,
   },
   {
     id: "porch-help",
@@ -33,12 +42,15 @@ export const demoNeeds = [
     description: "A community member requested help making a walkway safer before the next rain.",
     category: "Neighbor help",
     kind: "neighbor_help",
-    location: "Exact address shared after acceptance",
-    latitude: 29.3967,
-    longitude: -94.9221,
+    location: APPROXIMATE_LOCATION,
+    latitude: 29.4,
+    longitude: -94.92,
     city: "Texas City",
     status: "open",
-    reporterName: "Community request",
     createdAt: "Yesterday",
+    privateLocation: null,
+    approximate: true,
+    action: "demo",
+    offerId: null,
   },
-] as const;
+];
