@@ -40,7 +40,7 @@ If it reports that a type or table **already exists** (codes `42710`/`42P07`), t
 | Vetted helper | Everything a member can do, plus offer help on neighbor support requests |
 | Moderator | Review and approve reports, request respectful wording changes, revise or decline anonymous reports, change status, post public updates, hide or restore reports |
 | City official | Everything a moderator can do |
-| Administrator | Everything a city official can do, plus vet helpers, revoke helper status, designate city officials and administrators, suspend accounts, set a new password for another account, clear sign-in lockouts, sign accounts out of all devices, and view and filter the full audit log |
+| Administrator | Everything a city official can do, plus vet helpers, revoke helper status, designate moderators, city officials, and administrators, suspend accounts, set a new password for another account, clear sign-in lockouts, sign accounts out of all devices, and view and filter the full audit log |
 
 - Public reports do not require an account, but stay private until a moderator, city official, or administrator reviews and approves them. At-home neighbor-support requests require an account so requesters can choose a vetted helper and keep a private history.
 - Moderators can ask signed-in reporters to revise wording before publication. Anonymous reports cannot be returned to an unauthenticated author, so staff must rewrite and approve them or decline them.
@@ -53,7 +53,7 @@ If it reports that a type or table **already exists** (codes `42710`/`42P07`), t
 Every state change writes an append-only `audit_events` row in the same database batch as the change.
 
 - **Public (`/transparency` and each report's history):** what happened, when, and the actor's role. City officials and administrators act in a public capacity and are named with their title. Residents and helpers are never named.
-- **Private (administrators only):** moderation feedback and reasons, suspension reasons, helper vetting notes, and which account was affected.
+- **Private:** requested wording feedback is visible only to the report's signed-in author and administrators; moderation reasons, suspension reasons, helper vetting notes, and affected account details are administrators-only.
 - **Never public:** emails, password hashes, helper applications, offer messages, and exact neighbor-support locations. On the public map and `/api/needs`, neighbor-support pins are rounded to roughly 1 km.
 
 Passwords are hashed with scrypt. Session tokens are random, stored only as SHA-256 hashes, and sent as `httpOnly`, `SameSite=Lax` cookies. Accounts lock for 15 minutes after 5 failed sign-ins, and suspending an account signs it out everywhere.

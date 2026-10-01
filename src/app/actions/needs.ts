@@ -109,7 +109,7 @@ export async function offerHelp(needId: string, message?: string): Promise<Actio
   if (!note.success) return fail("Keep your message under 500 characters.");
 
   const [need] = await getDb().select().from(needs).where(eq(needs.id, needId)).limit(1);
-  if (!need || need.hidden) return fail("That report wasn't found.");
+  if (!need || need.hidden || need.reviewStatus !== "approved") return fail("That report wasn't found.");
   if (need.kind === "city_hazard") return fail("City hazards are handled by trained crews. Please don't attempt this yourself.");
   if (need.reporterId === viewer.id) return fail("You can't offer help on your own report.");
   if (need.status !== "open") return fail("Someone is already helping with this one.");
@@ -174,7 +174,7 @@ export async function respondToOffer(offerId: string, accept: boolean): Promise<
   if (!viewer) return fail("Please sign in.");
   if (!idSchema.safeParse(offerId).success) return fail("That offer wasn't found.");
   const [row] = await getDb().select({ offer: helpOffers, need: needs }).from(helpOffers).innerJoin(needs, eq(needs.id, helpOffers.needId)).where(eq(helpOffers.id, offerId)).limit(1);
-  if (!row || row.need.reporterId !== viewer.id) return fail("That offer wasn't found.");
+  if (!row || row.need.reporterId !== viewer.id || row.need.reviewStatus !== "approved") return fail("That offer wasn't found.");
   if (row.offer.status !== "pending") return fail("That offer has already been answered.");
 
   const now = new Date();
@@ -215,7 +215,7 @@ export async function completeNeed(needId: string): Promise<ActionResult> {
   if (!viewer) return fail("Please sign in.");
   if (!idSchema.safeParse(needId).success) return fail("That report wasn't found.");
   const [need] = await getDb().select().from(needs).where(eq(needs.id, needId)).limit(1);
-  if (!need || need.status !== "claimed") return fail("Only reports in progress can be completed.");
+  if (!need || need.reviewStatus !== "approved" || need.status !== "claimed") return fail("Only approved reports in progress can be completed.");
   const [assigned] = await getDb().select({ id: helpOffers.id }).from(helpOffers).where(and(eq(helpOffers.needId, needId), eq(helpOffers.helperId, viewer.id), eq(helpOffers.status, "accepted"))).limit(1);
   if (!assigned && need.reporterId !== viewer.id) return fail("Only the helper or the requester can mark this complete.");
 

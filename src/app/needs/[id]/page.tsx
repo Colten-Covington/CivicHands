@@ -42,10 +42,10 @@ export default async function NeedPage({ params }: { params: Promise<{ id: strin
       {staff && row.reviewStatus !== "approved" && <p className="notice">Review status: {row.reviewStatus.replaceAll("_", " ")}. This report is not visible publicly.</p>}
       {need.kind === "city_hazard" && <p className="notice">This is a job for trained city crews. Please stay clear and don&apos;t attempt it yourself. Updates from city officials appear below.</p>}
       <NeedActions need={need} showDetailsLink={false}/>
-      {staff && <section className="panel"><h2>Manage report</h2><StaffNeedControls needId={row.id} status={row.status} hidden={row.hidden}/></section>}
+      {staff && <section className="panel"><h2>Manage report</h2><StaffNeedControls needId={row.id} status={row.status} hidden={row.hidden} reviewStatus={row.reviewStatus} hasReporter={Boolean(row.reporterId)}/></section>}
       <section className="panel">
         <h2>Public history</h2>
-        <p className="muted">Every change is recorded. Residents and helpers appear by role only; city officials and administrators are named.</p>
+        <p className="muted">Every change is recorded. Residents and helpers appear by role only; moderators, city officials, and administrators are named.</p>
         <Timeline events={timeline}/>
       </section>
     </section>

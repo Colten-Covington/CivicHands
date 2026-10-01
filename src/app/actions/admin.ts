@@ -34,7 +34,7 @@ const roleNames = { member: "community member", moderator: "moderator", city_off
 /** Reviews user-submitted wording before it can appear publicly. */
 export async function reviewNeed(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const viewer = await getViewer();
-  if (!isStaff(viewer)) return fail("Only city officials and administrators can review reports.");
+  if (!isStaff(viewer)) return fail("Only moderators, city officials, and administrators can review reports.");
   const parsed = z.object({
     needId: z.uuid(),
     decision: z.enum(["approve", "request_changes", "reject"]),
@@ -80,10 +80,10 @@ export async function reviewNeed(_prev: ActionState, formData: FormData): Promis
   return ok(decision === "approve" ? "Report approved and published." : decision === "request_changes" ? "Wording changes requested." : "Report declined.");
 }
 
-/** City officials and administrators can move any report through its lifecycle with a public note. */
+/** Moderators, city officials, and administrators can move any report through its lifecycle with a public note. */
 export async function updateNeedStatus(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const viewer = await getViewer();
-  if (!isStaff(viewer)) return fail("Only city officials and administrators can manage reports.");
+  if (!isStaff(viewer)) return fail("Only moderators, city officials, and administrators can manage reports.");
   const parsed = z.object({
     needId: z.uuid(),
     status: z.enum(["open", "claimed", "completed", "referred", "closed"]),
@@ -92,8 +92,9 @@ export async function updateNeedStatus(_prev: ActionState, formData: FormData): 
   if (!parsed.success) return fail("Please choose a status and keep the note under 500 characters.");
   const { needId, status, publicNote } = parsed.data;
 
-  const [need] = await getDb().select({ status: needs.status }).from(needs).where(eq(needs.id, needId)).limit(1);
+  const [need] = await getDb().select({ status: needs.status, reviewStatus: needs.reviewStatus }).from(needs).where(eq(needs.id, needId)).limit(1);
   if (!need) return fail("That report wasn't found.");
+  if (need.reviewStatus !== "approved") return fail("Approve the report before publishing status updates.");
   if (need.status === status && !publicNote) return fail("Choose a new status or add a public update.");
 
   const now = new Date();
@@ -115,7 +116,7 @@ export async function updateNeedStatus(_prev: ActionState, formData: FormData): 
 /** Moderation: remove a report from the public map (or restore it). The reason stays private to staff. */
 export async function setNeedHidden(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const viewer = await getViewer();
-  if (!isStaff(viewer)) return fail("Only city officials and administrators can moderate reports.");
+  if (!isStaff(viewer)) return fail("Only moderators, city officials, and administrators can moderate reports.");
   const parsed = z.object({ needId: z.uuid(), hidden: z.enum(["true", "false"]), reason: z.string().trim().min(3, "Add a short reason for the audit log.").max(500) }).safeParse(Object.fromEntries(formData));
   if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Please add a reason.");
   const hidden = parsed.data.hidden === "true";

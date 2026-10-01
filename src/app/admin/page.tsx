@@ -17,6 +17,7 @@ export const dynamic = "force-dynamic";
 
 type Search = { tab?: string; q?: string; status?: string; visibility?: string; review?: string; role?: string; account?: string; target?: string; page?: string };
 const needStatuses = ["open", "claimed", "completed", "referred", "closed"] as const;
+const reviewStatuses = ["pending", "approved", "changes_requested", "rejected"] as const;
 const roles = ["member", "moderator", "city_official", "admin"] as const;
 const roleLabels = { member: "Member", moderator: "Moderator", city_official: "City official", admin: "Administrator" } as const;
 const accountFilters = { suspended: "Suspended", locked: "Locked out", helper_pending: "Helper application pending", helpers: "Vetted helpers" } as const;
@@ -42,7 +43,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
     <section className="page">
       <p className="eyebrow">{admin ? "Administrator" : viewer.role === "moderator" ? "Moderator" : `City official${viewer.officialTitle ? ` · ${viewer.officialTitle}` : ""}`}</p>
       <h1 className="page-title">{admin ? "Administration" : "Manage reports"}</h1>
-      <p className="muted">Every action here is recorded in the <Link href="/transparency">public audit log</Link> under your name. Private notes and reasons are visible to administrators only.</p>
+      <p className="muted">Every action here is recorded in the <Link href="/transparency">public audit log</Link> under your name. Requested wording feedback is shared only with its reporter; internal notes and reasons are visible to administrators only.</p>
       <Overview admin={admin}/>
       <nav className="tab-row" aria-label="Admin sections">{tabs.map(([key, label]) => <Link key={key} className={tab === key ? "active" : ""} href={`/admin?tab=${key}`}>{label}</Link>)}</nav>
       {tab === "reports" && <ReportsTab params={params}/>}
@@ -58,7 +59,7 @@ async function Overview({ admin }: { admin: boolean }) {
   const db = getDb();
   const now = new Date();
   const [[open], [hidden], [pendingReview], [pending], [suspended], [locked]] = await Promise.all([
-    db.select({ value: count() }).from(needs).where(and(eq(needs.status, "open"), eq(needs.hidden, false))),
+    db.select({ value: count() }).from(needs).where(and(eq(needs.status, "open"), eq(needs.hidden, false), eq(needs.reviewStatus, "approved"))),
     db.select({ value: count() }).from(needs).where(eq(needs.hidden, true)),
     db.select({ value: count() }).from(needs).where(inArray(needs.reviewStatus, ["pending", "changes_requested"])),
     admin ? db.select({ value: count() }).from(helperApplications).where(eq(helperApplications.status, "pending")) : Promise.resolve([{ value: 0 }]),
@@ -81,7 +82,7 @@ async function Overview({ admin }: { admin: boolean }) {
 async function ReportsTab({ params }: { params: Search }) {
   const filters: SQL[] = [];
   const status = needStatuses.find((value) => value === params.status);
-  const review = ["pending", "approved", "changes_requested", "rejected"].find((value) => value === params.review);
+  const review = reviewStatuses.find((value) => value === params.review);
   if (status) filters.push(eq(needs.status, status));
   if (review === "pending") filters.push(inArray(needs.reviewStatus, ["pending", "changes_requested"]));
   else if (review) filters.push(eq(needs.reviewStatus, review));
