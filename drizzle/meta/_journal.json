@@ -15,6 +15,13 @@
       "when": 1790880344023,
       "tag": "0001_accounts_moderation_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790892528334,
+      "tag": "0002_temporary_passwords",
+      "breakpoints": true
     }
   ]
 }
