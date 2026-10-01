@@ -102,5 +102,13 @@ export function isBootstrapAdmin(email: string) {
 /** Only accept same-site relative redirect targets. */
 export function safeNext(value: FormDataEntryValue | string | null | undefined, fallback = "/account") {
   const next = typeof value === "string" ? value : "";
-  return next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") ? next : fallback;
+  // Browsers strip tabs/newlines from URLs, so "/\t/evil.com" would become "//evil.com".
+  if (!next.startsWith("/") || /[\u0000-\u001f\u007f\\]/.test(next)) return fallback;
+  try {
+    const base = "http://civichands.invalid";
+    const url = new URL(next, base);
+    return url.origin === base ? `${url.pathname}${url.search}${url.hash}` : fallback;
+  } catch {
+    return fallback;
+  }
 }

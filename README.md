@@ -16,7 +16,7 @@ CivicHands is a community-care board for reporting local needs, coordinating saf
 2. Set `ADMIN_EMAILS` to the email address(es) of the first administrator(s).
 3. Run `npm install`.
 4. Run `npm run db:migrate` (or `npm run db:push` for a throwaway database).
-5. Run `npm run dev`, then sign up with an `ADMIN_EMAILS` address to get administrator access.
+5. Run `npm run dev`, then sign up with an `ADMIN_EMAILS` address. It becomes an administrator only while the deployment has no active administrator; after that, administrators manage roles from `/admin`.
 
 Without `DATABASE_URL`, the home page shows clearly labeled sample reports, accounts are disabled, and the report API returns a service-unavailable response. With a database, only real reports are shown.
 

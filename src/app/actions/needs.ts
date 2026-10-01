@@ -152,10 +152,20 @@ export async function respondToOffer(offerId: string, accept: boolean): Promise<
     return ok("Offer declined.");
   }
 
+  if (row.need.kind === "neighbor_help") {
+    const [helper] = await getDb().select({ helperStatus: users.helperStatus, suspendedAt: users.suspendedAt }).from(users).where(eq(users.id, row.offer.helperId)).limit(1);
+    if (!helper || helper.helperStatus !== "approved" || helper.suspendedAt) return fail("This helper is no longer vetted, so their offer can't be accepted.");
+  }
+
+  // Accept only if the offer is still pending (the helper may have just withdrawn), then claim the report.
+  const [accepted] = await getDb().update(helpOffers).set({ status: "accepted", respondedAt: now }).where(and(eq(helpOffers.id, offerId), eq(helpOffers.status, "pending"))).returning({ id: helpOffers.id });
+  if (!accepted) return fail("That offer is no longer available.");
   const [claimed] = await getDb().update(needs).set({ status: "claimed", updatedAt: now }).where(and(eq(needs.id, needId), eq(needs.status, "open"))).returning({ id: needs.id });
-  if (!claimed) return fail("This report is no longer open.");
+  if (!claimed) {
+    await getDb().update(helpOffers).set({ status: "pending", respondedAt: null }).where(eq(helpOffers.id, offerId));
+    return fail("This report is no longer open.");
+  }
   await getDb().batch([
-    getDb().update(helpOffers).set({ status: "accepted", respondedAt: now }).where(eq(helpOffers.id, offerId)),
     getDb().update(helpOffers).set({ status: "declined", respondedAt: now }).where(and(eq(helpOffers.needId, needId), eq(helpOffers.status, "pending"), ne(helpOffers.id, offerId))),
     auditInsert(viewer, { action: "offer.accepted", targetType: "need", targetId: needId, needId, publicSummary: "The requester accepted a vetted helper." }),
   ]);

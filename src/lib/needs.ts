@@ -59,7 +59,8 @@ function generalize(value: number) {
  */
 export function toMapNeed(need: Need, viewer: Viewer | null, offer: ViewerOffer | null): MapNeed {
   const isReporter = Boolean(viewer && need.reporterId === viewer.id);
-  const isAssigned = offer?.status === "accepted" || offer?.status === "completed";
+  // Neighbor-support details require the helper to still be vetted.
+  const isAssigned = (offer?.status === "accepted" || offer?.status === "completed") && (need.kind !== "neighbor_help" || viewer?.helperStatus === "approved");
   const sensitive = need.kind === "neighbor_help" || need.detailsPrivate;
   const exact = !sensitive || isReporter || isAssigned;
 

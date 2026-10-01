@@ -1,6 +1,6 @@
 "use server";
 import { randomUUID } from "node:crypto";
-import { eq, sql } from "drizzle-orm";
+import { and, count, eq, isNull, lt, or, sql } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { getDb } from "@/db";
@@ -30,8 +30,14 @@ function viewerFrom(user: typeof users.$inferSelect): Viewer {
   return { id: user.id, displayName: user.displayName, role: user.role, officialTitle: user.officialTitle, helperStatus: user.helperStatus };
 }
 
+/**
+ * Grants admin to an ADMIN_EMAILS account only while the deployment has no active administrator.
+ * After that, roles are managed (and audited) by administrators, so a demotion is never undone here.
+ */
 async function promoteBootstrapAdmin(user: typeof users.$inferSelect) {
   if (user.role === "admin" || !isBootstrapAdmin(user.email)) return;
+  const [{ value: admins }] = await getDb().select({ value: count() }).from(users).where(and(eq(users.role, "admin"), isNull(users.suspendedAt)));
+  if (admins > 0) return;
   await getDb().batch([
     getDb().update(users).set({ role: "admin" }).where(eq(users.id, user.id)),
     auditInsert(null, {
@@ -74,17 +80,18 @@ export async function signIn(_prev: ActionState, formData: FormData): Promise<Ac
     await verifyPassword(password, await dummyHash);
     return generic;
   }
-  if (user.lockedUntil && user.lockedUntil > new Date()) return fail("Too many attempts. Please wait a few minutes and try again.");
-
-  if (!(await verifyPassword(password, user.passwordHash))) {
-    const failures = user.failedSignIns + 1;
-    await getDb().update(users).set(
-      failures >= MAX_FAILED_SIGN_INS
-        ? { failedSignIns: 0, lockedUntil: new Date(Date.now() + LOCK_MINUTES * 60 * 1000) }
-        : { failedSignIns: sql`${users.failedSignIns} + 1` },
-    ).where(eq(users.id, user.id));
-    return generic;
+  // Count the attempt atomically before checking the password so parallel guesses can't skip the lockout.
+  const now = new Date();
+  const [attempt] = await getDb().update(users)
+    .set({ failedSignIns: sql`${users.failedSignIns} + 1` })
+    .where(and(eq(users.id, user.id), or(isNull(users.lockedUntil), lt(users.lockedUntil, now))))
+    .returning({ failedSignIns: users.failedSignIns });
+  if (!attempt) return fail("Too many attempts. Please wait a few minutes and try again.");
+  if (attempt.failedSignIns > MAX_FAILED_SIGN_INS) {
+    await getDb().update(users).set({ failedSignIns: 0, lockedUntil: new Date(now.getTime() + LOCK_MINUTES * 60 * 1000) }).where(eq(users.id, user.id));
+    return fail("Too many attempts. Please wait a few minutes and try again.");
   }
+  if (!(await verifyPassword(password, user.passwordHash))) return generic;
   if (user.suspendedAt) return fail("This account is suspended. Contact the CivicHands administrators if you believe this is a mistake.");
 
   await getDb().update(users).set({ failedSignIns: 0, lockedUntil: null }).where(eq(users.id, user.id));

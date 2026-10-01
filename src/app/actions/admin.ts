@@ -1,5 +1,5 @@
 "use server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getDb } from "@/db";
@@ -8,6 +8,22 @@ import { fail, ok, type ActionState } from "@/lib/action-state";
 import { auditInsert } from "@/lib/audit";
 import { getViewer, isAdmin, isStaff } from "@/lib/auth";
 import { statusLabels } from "@/lib/needs";
+
+/**
+ * Withdraws a user's open offers and releases reports they were assigned to, so a revoked or
+ * suspended helper can no longer be accepted or see private locations.
+ */
+async function releaseOffersFor(userId: string, neighborOnly: boolean) {
+  const kinds = neighborOnly ? (["neighbor_help"] as const) : (["neighbor_help", "public_cleanup"] as const);
+  const active = await getDb().select({ id: helpOffers.id, status: helpOffers.status, needId: helpOffers.needId }).from(helpOffers).innerJoin(needs, eq(needs.id, helpOffers.needId))
+    .where(and(eq(helpOffers.helperId, userId), inArray(helpOffers.status, ["pending", "accepted"]), inArray(needs.kind, [...kinds])));
+  if (active.length === 0) return [];
+  const now = new Date();
+  const assignedNeedIds = active.filter((offer) => offer.status === "accepted").map((offer) => offer.needId);
+  await getDb().update(helpOffers).set({ status: "withdrawn", respondedAt: now }).where(inArray(helpOffers.id, active.map((offer) => offer.id)));
+  if (assignedNeedIds.length) await getDb().update(needs).set({ status: "open", updatedAt: now }).where(and(inArray(needs.id, assignedNeedIds), eq(needs.status, "claimed")));
+  return assignedNeedIds;
+}
 
 function refreshAll() {
   revalidatePath("/", "layout");
@@ -106,9 +122,12 @@ export async function revokeHelper(_prev: ActionState, formData: FormData): Prom
   const { userId, reason } = parsed.data;
   if (userId === viewer.id) return fail("You can't change your own helper status.");
 
+  const [revoked] = await getDb().update(users).set({ helperStatus: "revoked" }).where(and(eq(users.id, userId), eq(users.helperStatus, "approved"))).returning({ id: users.id });
+  if (!revoked) return fail("That user isn't currently a vetted helper.");
+  const released = await releaseOffersFor(userId, true);
   await getDb().batch([
-    getDb().update(users).set({ helperStatus: "revoked" }).where(and(eq(users.id, userId), eq(users.helperStatus, "approved"))),
     auditInsert(viewer, { action: "helper.revoked", targetType: "user", targetId: userId, publicSummary: "A helper's vetted status was revoked.", privateDetails: { userId, reason } }),
+    ...released.map((needId) => auditInsert(viewer, { action: "need.released", targetType: "need", targetId: needId, needId, publicSummary: "The assigned helper is no longer available; this report is open again." })),
   ]);
   refreshAll();
   return ok("Helper status revoked.");
@@ -164,8 +183,14 @@ export async function setUserSuspended(_prev: ActionState, formData: FormData): 
     privateDetails: { userId, reason },
   });
   const update = getDb().update(users).set({ suspendedAt: suspend ? new Date() : null }).where(eq(users.id, userId));
-  if (suspend) await getDb().batch([update, getDb().delete(sessions).where(eq(sessions.userId, userId)), audit]);
-  else await getDb().batch([update, audit]);
+  if (suspend) {
+    await getDb().batch([update, getDb().delete(sessions).where(eq(sessions.userId, userId)), audit]);
+    const released = await releaseOffersFor(userId, false);
+    if (released.length) await getDb().batch([
+      auditInsert(viewer, { action: "need.released", targetType: "need", targetId: released[0], needId: released[0], publicSummary: "The assigned helper is no longer available; this report is open again." }),
+      ...released.slice(1).map((needId) => auditInsert(viewer, { action: "need.released", targetType: "need", targetId: needId, needId, publicSummary: "The assigned helper is no longer available; this report is open again." })),
+    ]);
+  } else await getDb().batch([update, audit]);
   refreshAll();
   return ok(suspend ? "Account suspended and signed out everywhere." : "Account reinstated.");
 }
