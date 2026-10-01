@@ -1,4 +1,4 @@
-import { boolean, doublePrecision, index, integer, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { boolean, doublePrecision, index, integer, jsonb, pgEnum, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 
 export const needStatus = pgEnum("need_status", ["open", "claimed", "completed", "referred", "closed"]);
 export const needKind = pgEnum("need_kind", ["public_cleanup", "city_hazard", "neighbor_help"]);
@@ -21,10 +21,15 @@ export const users = pgTable("users", {
   lockedUntil: timestamp("locked_until", { withTimezone: true }),
   /** Set when the password was issued by someone else (an administrator or ADMIN_TEMP_PASSWORD); cleared when the owner changes it. */
   mustChangePassword: boolean("must_change_password").notNull().default(false),
-  /** scrypt hash of the last ADMIN_TEMP_PASSWORD applied to this account, so each value is applied only once. */
+  /** Most recently applied hash; bootstrap_password_history keeps every applied temporary-password hash. */
   bootstrapPasswordHash: text("bootstrap_password_hash"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
+
+export const bootstrapPasswordHistory = pgTable("bootstrap_password_history", {
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  passwordHash: text("password_hash").notNull(),
+}, (t) => [primaryKey({ columns: [t.userId, t.passwordHash] })]);
 
 /** Session ids are SHA-256 hashes of the random token stored in the browser cookie. */
 export const sessions = pgTable("sessions", {
@@ -97,7 +102,12 @@ export const auditEvents = pgTable("audit_events", {
   publicSummary: text("public_summary").notNull(),
   publicNote: text("public_note"),
   privateDetails: jsonb("private_details").$type<Record<string, unknown>>(),
-}, (t) => [index("audit_events_need_idx").on(t.needId), index("audit_events_created_idx").on(t.createdAt)]);
+}, (t) => [
+  index("audit_events_need_idx").on(t.needId),
+  index("audit_events_created_idx").on(t.createdAt),
+  index("audit_events_actor_idx").on(t.actorId),
+  index("audit_events_target_idx").on(t.targetId),
+]);
 
 export type User = typeof users.$inferSelect;
 export type Need = typeof needs.$inferSelect;
