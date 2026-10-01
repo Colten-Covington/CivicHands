@@ -64,7 +64,9 @@ export default async function AccountPage() {
 
       <section className="panel" id="password">
         <h2>Password</h2>
-        <p className="muted">Changing your password signs you out on your other devices. If an administrator set a temporary password for you, replace it here.</p>
+        {viewer.mustChangePassword
+          ? <p className="form-error" role="status">You&apos;re signed in with a temporary password. Choose your own password to continue{viewer.role === "member" ? "" : "; administration tools are paused until you do"}.</p>
+          : <p className="muted">Changing your password signs you out on your other devices.</p>}
         <ActionForm action={changePassword} submitLabel="Change password" pendingLabel="Changing…">
           <label>Current password<input type="password" name="currentPassword" required maxLength={MAX_PASSWORD_LENGTH} autoComplete="current-password"/></label>
           <label>New password<input type="password" name="newPassword" required minLength={MIN_PASSWORD_LENGTH} maxLength={MAX_PASSWORD_LENGTH} autoComplete="new-password"/></label>

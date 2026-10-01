@@ -13,16 +13,16 @@ CivicHands is a community-care board for reporting local needs, coordinating saf
 ## Local setup
 
 1. Copy `.env.example` to `.env.local` and add a Neon `DATABASE_URL`.
-2. Set `ADMIN_EMAILS` to the email address(es) of the first administrator(s).
+2. Set `ADMIN_EMAILS` to the email address(es) of the first administrator(s). Optionally set `ADMIN_TEMP_PASSWORD` to have their accounts created for you (see [Administrator temporary passwords](#administrator-temporary-passwords)).
 3. Run `npm install`.
 4. Run `npm run db:migrate` (or `npm run db:push` for a throwaway database; don't later run migrations against a pushed database without baselining it, see [Migration errors](#migration-errors)).
-5. Run `npm run dev`, then sign up with an `ADMIN_EMAILS` address. It becomes an administrator only while the deployment has no active administrator; after that, administrators manage roles from `/admin`.
+5. Run `npm run dev`, then sign up with an `ADMIN_EMAILS` address (or, with `ADMIN_TEMP_PASSWORD` set, run `npm run db:bootstrap-admins` and sign in with the temporary password). It becomes an administrator only while the deployment has no active administrator; after that, administrators manage roles from `/admin`.
 
 Without `DATABASE_URL`, the home page shows clearly labeled sample reports, accounts are disabled, and the report API returns a service-unavailable response. With a database, only real reports are shown.
 
 The map uses OpenStreetMap street tiles by default, OpenFreeMap vector tiles for 3D buildings, and U.S. Geological Survey imagery for the satellite view. These third-party tile services require a network connection; if a provider is unavailable, switch views or try again later.
 
-For production, configure `DATABASE_URL` in the deployment environment. Vercel runs the Drizzle migrations automatically during production builds when `DATABASE_URL` is set; production builds without it skip migrations and use sample data, and preview builds do not modify the production database. Create the administrator accounts before sharing the site publicly, set `NODE_ENV=production` (secure cookies), and set `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` when running more than one instance.
+For production, configure `DATABASE_URL` in the deployment environment. Vercel runs the Drizzle migrations, then applies `ADMIN_TEMP_PASSWORD` if it's set, automatically during production builds when `DATABASE_URL` is set; production builds without it skip migrations and use sample data, and preview builds do not modify the production database. Create the administrator accounts before sharing the site publicly, set `NODE_ENV=production` (secure cookies), and set `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` when running more than one instance.
 
 ### Migration errors
 
@@ -59,8 +59,25 @@ Passwords are hashed with scrypt. Session tokens are random, stored only as SHA-
 There is no email-based password reset yet, so:
 
 - **Members** change their own password from **Your account → Password** (requires the current password; other devices are signed out).
-- **Administrators** can set a new password for any other account, including other administrators, from **Admin → Users & roles → Manage → Set a new password**. They must re-enter their own password; the account is unlocked and signed out everywhere, and the change is recorded in the audit log (the password itself never is). Share the new password privately and ask the owner to change it.
-- **If no administrator can sign in** (for example, the only administrator forgot their password), someone with database access can put the `DATABASE_URL` in `.env.local` and run `npm run user:set-password -- admin@example.org`. It prompts for the new password without echoing it (or reads the first line of stdin when piped), unlocks the account, signs it out everywhere, and writes a system audit event.
+- **Administrators** can set a temporary password for any other account, including other administrators, from **Admin → Users & roles → Manage → Set a new password**. They must re-enter their own password; the account is unlocked and signed out everywhere, and the change is recorded in the audit log (the password itself never is). Share it privately.
+- **If no administrator can sign in** (for example, the only administrator forgot their password), use `ADMIN_TEMP_PASSWORD` below. Alternatively, someone with database access can put the `DATABASE_URL` in `.env.local` and run `npm run user:set-password -- admin@example.org`, which prompts for the password without echoing it.
+
+Whoever signs in with a temporary password is sent to **Your account → Password** and must choose a new one; until then, administrator and city official tools are paused.
+
+### Administrator temporary passwords
+
+Set `ADMIN_TEMP_PASSWORD` (at least 12 characters) alongside `ADMIN_EMAILS` in the deployment environment (in Vercel, the Production environment), then deploy. During the production build, after migrations, `scripts/bootstrap-admins.mjs` goes through each `ADMIN_EMAILS` address:
+
+| Account | While there's no active administrator | Once an administrator exists |
+| --- | --- | --- |
+| Doesn't exist | Created as an administrator (display name "Administrator") with the temporary password | Skipped; sign up, then have an administrator grant the role |
+| Exists, administrator | Temporary password set | Temporary password set |
+| Exists, not an administrator | Promoted and temporary password set | Skipped |
+| Suspended | Skipped | Skipped |
+
+Setting the temporary password also clears any sign-in lockout, signs the account out everywhere, and writes a system audit event. The password is never logged.
+
+Each value is applied to an account **once**: later deploys with the same `ADMIN_TEMP_PASSWORD` leave the account alone, so they won't undo the password the administrator chose. To recover a forgotten administrator password, change `ADMIN_TEMP_PASSWORD` to a new value and redeploy. Remove the variable once the administrator has signed in and picked their own password; anyone who can read the deployment's environment variables can sign in as these administrators until then. Locally, run `npm run db:bootstrap-admins`; it reads `.env.local`.
 
 ## MVP roadmap
 

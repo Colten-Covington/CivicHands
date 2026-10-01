@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { and, count, desc, eq, gt, ilike, inArray, isNotNull, or, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { clearSignInLockout, reviewHelperApplication, revokeHelper, setUserPassword, setUserRole, setUserSuspended, signOutUserEverywhere } from "@/app/actions/admin";
@@ -29,6 +29,7 @@ function adminHref(params: Record<string, string | undefined>) {
 
 export default async function AdminPage({ searchParams }: { searchParams: Promise<Search> }) {
   const viewer = await requireViewer("/admin");
+  if (viewer.mustChangePassword) redirect("/account#password");
   if (!isStaff(viewer)) notFound();
   const admin = isAdmin(viewer);
   const params = await searchParams;
@@ -180,7 +181,7 @@ async function UsersTab({ params, viewerId }: { params: Search; viewerId: string
           </ActionForm>
           <details><summary>Set a new password</summary>
             <ActionForm action={setUserPassword} submitLabel="Set password" buttonClassName="secondary-button" className="action-form compact">
-              <p className="muted">Use this when someone is locked out or forgot their password. It clears any sign-in lockout and signs the account out everywhere. Share the password privately and ask them to change it from their account page.</p>
+              <p className="muted">Use this when someone is locked out or forgot their password. It clears any sign-in lockout and signs the account out everywhere. Share the password privately; they must choose their own password when they next sign in.</p>
               <input type="hidden" name="userId" value={user.id}/>
               <input type="text" name="username" autoComplete="username" value={user.email} readOnly hidden/>
               <label>New password<input type="password" name="newPassword" required minLength={MIN_PASSWORD_LENGTH} maxLength={MAX_PASSWORD_LENGTH} autoComplete="new-password"/></label>

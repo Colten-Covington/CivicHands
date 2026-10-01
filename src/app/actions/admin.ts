@@ -232,7 +232,7 @@ export async function setUserPassword(_prev: ActionState, formData: FormData): P
   if (!user) return fail("That user wasn't found.");
 
   await getDb().batch([
-    getDb().update(users).set({ passwordHash: await hashPassword(newPassword), failedSignIns: 0, lockedUntil: null }).where(eq(users.id, userId)),
+    getDb().update(users).set({ passwordHash: await hashPassword(newPassword), mustChangePassword: true, failedSignIns: 0, lockedUntil: null }).where(eq(users.id, userId)),
     getDb().delete(sessions).where(eq(sessions.userId, userId)),
     auditInsert(viewer, {
       action: "user.password_set",
@@ -243,7 +243,7 @@ export async function setUserPassword(_prev: ActionState, formData: FormData): P
     }),
   ]);
   refreshAll();
-  return ok("Password set and the account was signed out everywhere. Share the new password privately and ask them to change it from their account page.");
+  return ok("Password set and the account was signed out everywhere. Share it privately; they'll be asked to choose their own password when they sign in.");
 }
 
 /** Lets a locked-out user try signing in again before the 15-minute lockout ends. */

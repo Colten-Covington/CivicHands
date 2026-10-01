@@ -16,7 +16,7 @@ const KEY_LENGTH = 64;
 const MAX_FAILED_SIGN_INS = 5;
 const LOCK_MINUTES = 15;
 
-export type Viewer = Pick<User, "id" | "displayName" | "role" | "officialTitle" | "helperStatus">;
+export type Viewer = Pick<User, "id" | "displayName" | "role" | "officialTitle" | "helperStatus" | "mustChangePassword">;
 
 export const MIN_PASSWORD_LENGTH = 12;
 export const MAX_PASSWORD_LENGTH = 200;
@@ -93,13 +93,13 @@ export const getViewer = cache(async (): Promise<Viewer | null> => {
   if (!token) return null;
   try {
     const [row] = await getDb()
-      .select({ id: users.id, displayName: users.displayName, role: users.role, officialTitle: users.officialTitle, helperStatus: users.helperStatus, suspendedAt: users.suspendedAt })
+      .select({ id: users.id, displayName: users.displayName, role: users.role, officialTitle: users.officialTitle, helperStatus: users.helperStatus, mustChangePassword: users.mustChangePassword, suspendedAt: users.suspendedAt })
       .from(sessions)
       .innerJoin(users, eq(users.id, sessions.userId))
       .where(and(eq(sessions.id, hashToken(token)), gt(sessions.expiresAt, new Date())))
       .limit(1);
     if (!row || row.suspendedAt) return null;
-    return { id: row.id, displayName: row.displayName, role: row.role, officialTitle: row.officialTitle, helperStatus: row.helperStatus };
+    return { id: row.id, displayName: row.displayName, role: row.role, officialTitle: row.officialTitle, helperStatus: row.helperStatus, mustChangePassword: row.mustChangePassword };
   } catch {
     return null;
   }
@@ -111,13 +111,14 @@ export async function requireViewer(next = "/account") {
   return viewer;
 }
 
+/** Staff powers are paused while an account is still using a temporary password someone else set. */
 export function isAdmin(viewer: Viewer | null) {
-  return viewer?.role === "admin";
+  return viewer?.role === "admin" && !viewer.mustChangePassword;
 }
 
 /** City officials and administrators may manage reports. */
 export function isStaff(viewer: Viewer | null) {
-  return viewer?.role === "admin" || viewer?.role === "city_official";
+  return (viewer?.role === "admin" || viewer?.role === "city_official") && !viewer.mustChangePassword;
 }
 
 export function isBootstrapAdmin(email: string) {

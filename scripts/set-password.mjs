@@ -8,27 +8,15 @@
 //
 // The password is read from a hidden prompt, or from the first line of stdin
 // when piped, so it never appears in shell history or process listings. The
-// account is unlocked, signed out everywhere, and the change is audited.
-import { randomBytes, scrypt as scryptCallback } from "node:crypto";
+// account is unlocked, signed out everywhere, must choose a new password at
+// its next sign-in, and the change is audited.
 import { createInterface } from "node:readline";
-import { promisify } from "node:util";
 import { neon } from "@neondatabase/serverless";
-
-// Must match hashPassword() in src/lib/auth.ts.
-const scrypt = promisify(scryptCallback);
-const KEY_LENGTH = 64;
-const MIN_PASSWORD_LENGTH = 12;
-const MAX_PASSWORD_LENGTH = 200;
+import { hashPassword, passwordProblem } from "./lib/password.mjs";
 
 function fail(message) {
   console.error(`[set-password] ${message}`);
   process.exit(1);
-}
-
-async function hashPassword(password) {
-  const salt = randomBytes(16);
-  const key = await scrypt(password.normalize("NFKC"), salt, KEY_LENGTH);
-  return `scrypt$${salt.toString("base64")}$${key.toString("base64")}`;
 }
 
 /** Reads one line; when interactive, input is not echoed. */
@@ -71,12 +59,12 @@ if (process.stdin.isTTY) {
 } else {
   password = (await prompt("")).replace(/\r$/, "");
 }
-if (password.length < MIN_PASSWORD_LENGTH) fail(`Use at least ${MIN_PASSWORD_LENGTH} characters for the password.`);
-if (password.length > MAX_PASSWORD_LENGTH) fail(`Keep the password under ${MAX_PASSWORD_LENGTH} characters.`);
+const problem = passwordProblem(password);
+if (problem) fail(problem);
 
 const passwordHash = await hashPassword(password);
 await sql.transaction([
-  sql`update users set password_hash = ${passwordHash}, failed_sign_ins = 0, locked_until = null where id = ${user.id}`,
+  sql`update users set password_hash = ${passwordHash}, failed_sign_ins = 0, locked_until = null, must_change_password = true where id = ${user.id}`,
   sql`delete from sessions where user_id = ${user.id}`,
   sql`insert into audit_events (actor_role, action, target_type, target_id, public_summary, private_details)
       values ('system', 'user.password_set', 'user', ${user.id}, 'A new password was set for an account from the server console.', ${JSON.stringify({ userId: user.id, role: user.role, via: "cli" })}::jsonb)`,

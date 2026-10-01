@@ -19,6 +19,10 @@ export const users = pgTable("users", {
   suspendedAt: timestamp("suspended_at", { withTimezone: true }),
   failedSignIns: integer("failed_sign_ins").notNull().default(0),
   lockedUntil: timestamp("locked_until", { withTimezone: true }),
+  /** Set when the password was issued by someone else (an administrator or ADMIN_TEMP_PASSWORD); cleared when the owner changes it. */
+  mustChangePassword: boolean("must_change_password").notNull().default(false),
+  /** scrypt hash of the last ADMIN_TEMP_PASSWORD applied to this account, so each value is applied only once. */
+  bootstrapPasswordHash: text("bootstrap_password_hash"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

@@ -1,6 +1,7 @@
 "use server";
 import { randomUUID } from "node:crypto";
 import { and, count, eq, isNull } from "drizzle-orm";
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { getDb } from "@/db";
@@ -25,7 +26,7 @@ const signInSchema = z.object({
 });
 
 function viewerFrom(user: typeof users.$inferSelect): Viewer {
-  return { id: user.id, displayName: user.displayName, role: user.role, officialTitle: user.officialTitle, helperStatus: user.helperStatus };
+  return { id: user.id, displayName: user.displayName, role: user.role, officialTitle: user.officialTitle, helperStatus: user.helperStatus, mustChangePassword: user.mustChangePassword };
 }
 
 /**
@@ -85,7 +86,7 @@ export async function signIn(_prev: ActionState, formData: FormData): Promise<Ac
 
   await promoteBootstrapAdmin(user);
   await createSession(user.id);
-  redirect(safeNext(formData.get("next")));
+  redirect(user.mustChangePassword ? "/account#password" : safeNext(formData.get("next")));
 }
 
 export async function signOut() {
@@ -115,10 +116,11 @@ export async function changePassword(_prev: ActionState, formData: FormData): Pr
   if (result === "wrong") return fail("Your current password is incorrect.");
 
   await getDb().batch([
-    getDb().update(users).set({ passwordHash: await hashPassword(newPassword) }).where(eq(users.id, viewer.id)),
+    getDb().update(users).set({ passwordHash: await hashPassword(newPassword), mustChangePassword: false }).where(eq(users.id, viewer.id)),
     getDb().delete(sessions).where(eq(sessions.userId, viewer.id)),
     auditInsert(viewer, { action: "user.password_changed", targetType: "user", targetId: viewer.id, publicSummary: "A member changed their account password." }),
   ]);
   await createSession(viewer.id);
+  revalidatePath("/", "layout");
   return ok("Password changed. You've been signed out on your other devices.");
 }

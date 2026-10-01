@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "vercel-build": "if [ \"$VERCEL_ENV\" = \"production\" ] && [ -n \"$DATABASE_URL\" ]; then npm run db:migrate:deploy; fi && npm run build",
+    "vercel-build": "if [ \"$VERCEL_ENV\" = \"production\" ] && [ -n \"$DATABASE_URL\" ]; then npm run db:migrate:deploy && npm run db:bootstrap-admins:deploy; fi && npm run build",
     "start": "next start",
     "lint": "eslint",
     "db:generate": "drizzle-kit generate",
@@ -13,6 +13,8 @@
     "db:migrate": "dotenv -e .env.local -- node scripts/migrate.mjs",
     "db:migrate:deploy": "node scripts/migrate.mjs",
     "db:migrate:baseline": "dotenv -e .env.local -- node scripts/migrate.mjs --baseline",
+    "db:bootstrap-admins": "dotenv -e .env.local -- node scripts/bootstrap-admins.mjs",
+    "db:bootstrap-admins:deploy": "node scripts/bootstrap-admins.mjs",
     "user:set-password": "dotenv -e .env.local -- node scripts/set-password.mjs"
   },
   "dependencies": {
