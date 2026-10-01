@@ -20,6 +20,8 @@ CivicHands is a community-care board for reporting local needs, coordinating saf
 
 Without `DATABASE_URL`, the home page shows clearly labeled sample reports, accounts are disabled, and the report API returns a service-unavailable response. With a database, only real reports are shown.
 
+The map uses OpenStreetMap street tiles by default, OpenFreeMap vector tiles for 3D buildings, and U.S. Geological Survey imagery for the satellite view. These third-party tile services require a network connection; if a provider is unavailable, switch views or try again later.
+
 For production, configure `DATABASE_URL` in the deployment environment. Vercel runs the Drizzle migrations automatically during production builds when `DATABASE_URL` is set; production builds without it skip migrations and use sample data, and preview builds do not modify the production database. Create the administrator accounts before sharing the site publicly, set `NODE_ENV=production` (secure cookies), and set `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` when running more than one instance.
 
 ### Migration errors
