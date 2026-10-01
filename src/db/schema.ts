@@ -3,7 +3,7 @@ import { boolean, doublePrecision, index, integer, jsonb, pgEnum, pgTable, prima
 export const needStatus = pgEnum("need_status", ["open", "claimed", "completed", "referred", "closed"]);
 export const needKind = pgEnum("need_kind", ["public_cleanup", "city_hazard", "neighbor_help"]);
 export const needReviewStatus = pgEnum("need_review_status", ["pending", "approved", "changes_requested", "rejected"]);
-export const userRole = pgEnum("user_role", ["member", "city_official", "admin"]);
+export const userRole = pgEnum("user_role", ["member", "moderator", "city_official", "admin"]);
 export const helperStatus = pgEnum("helper_status", ["none", "pending", "approved", "rejected", "revoked"]);
 export const applicationStatus = pgEnum("application_status", ["pending", "approved", "rejected"]);
 export const offerStatus = pgEnum("offer_status", ["pending", "accepted", "declined", "withdrawn", "completed"]);

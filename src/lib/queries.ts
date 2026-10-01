@@ -16,7 +16,7 @@ export async function loadViewerOffers(viewer: Viewer | null, needIds: string[])
 
 /** Visible (not moderated) reports, already filtered for what this viewer may see. */
 export async function loadMapNeeds(viewer: Viewer | null): Promise<MapNeed[]> {
-  const rows = await getDb().select().from(needs).where(eq(needs.hidden, false)).orderBy(desc(needs.createdAt)).limit(200);
+  const rows = await getDb().select().from(needs).where(and(eq(needs.hidden, false), eq(needs.reviewStatus, "approved"))).orderBy(desc(needs.createdAt)).limit(200);
   const offers = await loadViewerOffers(viewer, rows.map((row) => row.id));
   return rows.map((row) => toMapNeed(row, viewer, offers.get(row.id) ?? null));
 }

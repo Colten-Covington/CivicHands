@@ -51,14 +51,14 @@ export async function createNeed(input: unknown): Promise<ActionResult & { id?: 
   const needId = randomUUID();
   await getDb().batch([
     getDb().insert(needs).values({
-    id: needId,
-    ...data,
-    location: isNeighbor ? APPROXIMATE_LOCATION : data.location,
-    privateLocation: isNeighbor ? data.location : null,
-    reporterId: viewer?.id ?? null,
-    detailsPrivate: isNeighbor,
-    status: data.kind === "city_hazard" ? "referred" : "open",
-    reviewStatus: "pending",
+      id: needId,
+      ...data,
+      location: isNeighbor ? APPROXIMATE_LOCATION : data.location,
+      privateLocation: isNeighbor ? data.location : null,
+      reporterId: viewer?.id ?? null,
+      detailsPrivate: isNeighbor,
+      status: data.kind === "city_hazard" ? "referred" : "open",
+      reviewStatus: "pending",
     }),
     auditInsert(viewer, {
       action: "need.created",
@@ -73,21 +73,22 @@ export async function createNeed(input: unknown): Promise<ActionResult & { id?: 
 }
 
 /** Reporters can revise wording requested by a moderator and resubmit it for review. */
-export async function resubmitNeedWording(needId: string, input: { title: string; description: string }): Promise<ActionResult> {
+export async function resubmitNeedWording(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const viewer = await getViewer();
   if (!viewer) return fail("Please sign in to update your report.");
-  if (!idSchema.safeParse(needId).success) return fail("That report wasn't found.");
   const parsed = z.object({
+    needId: z.uuid(),
     title: z.string().trim().min(5).max(100),
     description: z.string().trim().min(10).max(1000),
-  }).safeParse(input);
+  }).safeParse(Object.fromEntries(formData));
   if (!parsed.success) return fail("Please check the revised title and description.");
+  const { needId, title, description } = parsed.data;
 
   const [need] = await getDb().select({ reporterId: needs.reporterId, reviewStatus: needs.reviewStatus }).from(needs).where(eq(needs.id, needId)).limit(1);
   if (!need || need.reporterId !== viewer.id || need.reviewStatus !== "changes_requested") return fail("That report can't be revised.");
 
   await getDb().batch([
-    getDb().update(needs).set({ ...parsed.data, reviewStatus: "pending", moderationFeedback: null, updatedAt: new Date() }).where(eq(needs.id, needId)),
+    getDb().update(needs).set({ title, description, reviewStatus: "pending", moderationFeedback: null, updatedAt: new Date() }).where(eq(needs.id, needId)),
     auditInsert(viewer, {
       action: "need.wording_resubmitted",
       targetType: "need",

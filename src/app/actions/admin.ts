@@ -29,7 +29,7 @@ function refreshAll() {
   revalidatePath("/", "layout");
 }
 
-const roleNames = { member: "community member", city_official: "city official", admin: "administrator" } as const;
+const roleNames = { member: "community member", moderator: "moderator", city_official: "city official", admin: "administrator" } as const;
 
 /** Reviews user-submitted wording before it can appear publicly. */
 export async function reviewNeed(_prev: ActionState, formData: FormData): Promise<ActionState> {
@@ -38,9 +38,9 @@ export async function reviewNeed(_prev: ActionState, formData: FormData): Promis
   const parsed = z.object({
     needId: z.uuid(),
     decision: z.enum(["approve", "request_changes", "reject"]),
-    feedback: z.string().trim().max(500).optional(),
-    revisedTitle: z.string().trim().min(5).max(100).optional(),
-    revisedDescription: z.string().trim().min(10).max(1000).optional(),
+    feedback: z.preprocess((value) => value === "" ? undefined : value, z.string().trim().max(500).optional()),
+    revisedTitle: z.preprocess((value) => value === "" ? undefined : value, z.string().trim().min(5).max(100).optional()),
+    revisedDescription: z.preprocess((value) => value === "" ? undefined : value, z.string().trim().min(10).max(1000).optional()),
   }).safeParse(Object.fromEntries(formData));
   if (!parsed.success) return fail("Please check the review details.");
   const { needId, decision, feedback, revisedTitle, revisedDescription } = parsed.data;
@@ -192,7 +192,7 @@ export async function setUserRole(_prev: ActionState, formData: FormData): Promi
   if (!viewer || !isAdmin(viewer)) return fail("Only administrators can change roles.");
   const parsed = z.object({
     userId: z.uuid(),
-    role: z.enum(["member", "city_official", "admin"]),
+    role: z.enum(["member", "moderator", "city_official", "admin"]),
     officialTitle: z.string().trim().max(120).optional(),
   }).safeParse(Object.fromEntries(formData));
   if (!parsed.success) return fail("Please check the role details.");
