@@ -74,6 +74,9 @@ async function apply(email, noActiveAdmin) {
   if (user.suspended_at) return log(`${email}: account is suspended; skipped.`);
   const promote = user.role !== "admin";
   if (promote && !noActiveAdmin) return log(`${email}: account is not an administrator, and the deployment already has one; skipped.`);
+  await sql`insert into bootstrap_password_history (user_id, password_hash)
+      select id, bootstrap_password_hash from users where id = ${user.id} and bootstrap_password_hash is not null
+      on conflict do nothing`;
   const appliedPasswords = await sql`select password_hash from bootstrap_password_history where user_id = ${user.id}`;
   let alreadyApplied = false;
   for (const { password_hash } of appliedPasswords) {
