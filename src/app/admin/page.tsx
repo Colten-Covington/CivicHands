@@ -1,21 +1,31 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { and, count, desc, eq, ilike, inArray, or, type SQL } from "drizzle-orm";
-import { reviewHelperApplication, revokeHelper, setUserRole, setUserSuspended } from "@/app/actions/admin";
+import { and, count, desc, eq, gt, ilike, inArray, isNotNull, or, type SQL } from "drizzle-orm";
+import { z } from "zod";
+import { clearSignInLockout, reviewHelperApplication, revokeHelper, setUserPassword, setUserRole, setUserSuspended, signOutUserEverywhere } from "@/app/actions/admin";
 import { ActionForm } from "@/components/action-form";
 import { SiteHeader } from "@/components/site-header";
 import { StaffNeedControls } from "@/components/staff-need-controls";
 import { getDb } from "@/db";
 import { auditEvents, helperApplications, needs, users } from "@/db/schema";
-import { isAdmin, isStaff, requireViewer } from "@/lib/auth";
+import { isAdmin, isStaff, MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH, requireViewer } from "@/lib/auth";
 import { formatDateTime, formatWhen } from "@/lib/format";
 import { kindLabels, statusLabels } from "@/lib/needs";
 
 export const metadata = { title: "Administration — CivicHands" };
 export const dynamic = "force-dynamic";
 
-type Search = { tab?: string; q?: string; status?: string; visibility?: string };
+type Search = { tab?: string; q?: string; status?: string; visibility?: string; role?: string; account?: string; target?: string; page?: string };
 const needStatuses = ["open", "claimed", "completed", "referred", "closed"] as const;
+const roles = ["member", "city_official", "admin"] as const;
+const roleLabels = { member: "Member", city_official: "City official", admin: "Administrator" } as const;
+const accountFilters = { suspended: "Suspended", locked: "Locked out", helper_pending: "Helper application pending", helpers: "Vetted helpers" } as const;
+const AUDIT_PAGE_SIZE = 100;
+
+function adminHref(params: Record<string, string | undefined>) {
+  const query = new URLSearchParams(Object.entries(params).filter((entry): entry is [string, string] => Boolean(entry[1])));
+  return `/admin?${query}`;
+}
 
 export default async function AdminPage({ searchParams }: { searchParams: Promise<Search> }) {
   const viewer = await requireViewer("/admin");
@@ -31,13 +41,37 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
       <p className="eyebrow">{admin ? "Administrator" : `City official${viewer.officialTitle ? ` · ${viewer.officialTitle}` : ""}`}</p>
       <h1 className="page-title">{admin ? "Administration" : "Manage reports"}</h1>
       <p className="muted">Every action here is recorded in the <Link href="/transparency">public audit log</Link> under your name. Private notes and reasons are visible to administrators only.</p>
+      <Overview admin={admin}/>
       <nav className="tab-row" aria-label="Admin sections">{tabs.map(([key, label]) => <Link key={key} className={tab === key ? "active" : ""} href={`/admin?tab=${key}`}>{label}</Link>)}</nav>
       {tab === "reports" && <ReportsTab params={params}/>}
       {tab === "helpers" && admin && <HelpersTab/>}
-      {tab === "users" && admin && <UsersTab q={params.q} viewerId={viewer.id}/>}
-      {tab === "audit" && admin && <AuditTab/>}
+      {tab === "users" && admin && <UsersTab params={params} viewerId={viewer.id}/>}
+      {tab === "audit" && admin && <AuditTab params={params}/>}
     </section>
   </main>;
+}
+
+/** Moderation queue at a glance. Each figure links to the matching filtered list. */
+async function Overview({ admin }: { admin: boolean }) {
+  const db = getDb();
+  const now = new Date();
+  const [[open], [hidden], [pending], [suspended], [locked]] = await Promise.all([
+    db.select({ value: count() }).from(needs).where(and(eq(needs.status, "open"), eq(needs.hidden, false))),
+    db.select({ value: count() }).from(needs).where(eq(needs.hidden, true)),
+    admin ? db.select({ value: count() }).from(helperApplications).where(eq(helperApplications.status, "pending")) : Promise.resolve([{ value: 0 }]),
+    admin ? db.select({ value: count() }).from(users).where(isNotNull(users.suspendedAt)) : Promise.resolve([{ value: 0 }]),
+    admin ? db.select({ value: count() }).from(users).where(gt(users.lockedUntil, now)) : Promise.resolve([{ value: 0 }]),
+  ]);
+  const stats: [number, string, string][] = [
+    [open.value, "Open reports", adminHref({ tab: "reports", status: "open", visibility: "visible" })],
+    [hidden.value, "Hidden reports", adminHref({ tab: "reports", visibility: "hidden" })],
+  ];
+  if (admin) stats.push(
+    [pending.value, "Helper applications", adminHref({ tab: "helpers" })],
+    [suspended.value, "Suspended accounts", adminHref({ tab: "users", account: "suspended" })],
+    [locked.value, "Locked out now", adminHref({ tab: "users", account: "locked" })],
+  );
+  return <div className="stat-grid">{stats.map(([value, label, href]) => <Link key={label} href={href} className="stat-link"><strong>{value}</strong><span>{label}</span></Link>)}</div>;
 }
 
 async function ReportsTab({ params }: { params: Search }) {
@@ -104,48 +138,107 @@ async function HelpersTab() {
   </section>;
 }
 
-async function UsersTab({ q, viewerId }: { q?: string; viewerId: string }) {
-  const term = q?.trim().slice(0, 100);
-  const rows = await getDb().select().from(users).where(term ? or(ilike(users.email, `%${term}%`), ilike(users.displayName, `%${term}%`)) : undefined).orderBy(desc(users.createdAt)).limit(50);
+async function UsersTab({ params, viewerId }: { params: Search; viewerId: string }) {
+  const term = params.q?.trim().slice(0, 100);
+  const role = roles.find((value) => value === params.role);
+  const account = params.account && params.account in accountFilters ? params.account as keyof typeof accountFilters : undefined;
+  const now = new Date();
+  const filters: SQL[] = [];
+  if (term) filters.push(or(ilike(users.email, `%${term}%`), ilike(users.displayName, `%${term}%`))!);
+  if (role) filters.push(eq(users.role, role));
+  if (account === "suspended") filters.push(isNotNull(users.suspendedAt));
+  if (account === "locked") filters.push(gt(users.lockedUntil, now));
+  if (account === "helper_pending") filters.push(eq(users.helperStatus, "pending"));
+  if (account === "helpers") filters.push(eq(users.helperStatus, "approved"));
+  const rows = await getDb().select().from(users).where(filters.length ? and(...filters) : undefined).orderBy(desc(users.createdAt)).limit(50);
+
   return <section>
     <form className="filter-form" action="/admin">
       <input type="hidden" name="tab" value="users"/>
       <input name="q" defaultValue={term} placeholder="Search by name or email"/>
+      <select name="role" defaultValue={role ?? ""}><option value="">Any role</option>{roles.map((value) => <option key={value} value={value}>{roleLabels[value]}</option>)}</select>
+      <select name="account" defaultValue={account ?? ""}><option value="">Any account status</option>{Object.entries(accountFilters).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
       <button className="secondary-button">Search</button>
     </form>
-    <ul className="item-list">{rows.map((user) => <li key={user.id}>
-      <div className="item-head"><strong>{user.displayName}</strong><span className="status-pill">{user.role === "city_official" ? "City official" : user.role === "admin" ? "Administrator" : "Member"}</span>{user.helperStatus !== "none" && <span className="status-pill">Helper: {user.helperStatus}</span>}{user.suspendedAt && <span className="status-pill warn">Suspended</span>}</div>
-      <small className="muted">{user.email}{user.officialTitle ? ` · ${user.officialTitle}` : ""} · joined {formatWhen(user.createdAt)}</small>
-      {user.id === viewerId ? <p className="muted">This is you. Another administrator must change your role or status.</p> : <details><summary>Manage</summary>
-        <ActionForm action={setUserRole} submitLabel="Save role" className="action-form compact">
-          <input type="hidden" name="userId" value={user.id}/>
-          <label>Role<select name="role" defaultValue={user.role}><option value="member">Community member</option><option value="city_official">City official</option><option value="admin">Administrator</option></select></label>
-          <label>Official title (public; required for city officials)<input name="officialTitle" defaultValue={user.officialTitle ?? ""} maxLength={120} placeholder="Public Works, City of Texas City"/></label>
-        </ActionForm>
-        <ActionForm action={setUserSuspended} submitLabel={user.suspendedAt ? "Reinstate account" : "Suspend account"} buttonClassName="secondary-button" className="action-form compact">
-          <input type="hidden" name="userId" value={user.id}/>
-          <input type="hidden" name="suspend" value={user.suspendedAt ? "false" : "true"}/>
-          <label>Reason (admins only)<input name="reason" required minLength={3} maxLength={500}/></label>
-        </ActionForm>
-      </details>}
-    </li>)}</ul>
+    {rows.length === 0 && <p className="muted">No accounts match.</p>}
+    {rows.length === 50 && <p className="muted">Showing the 50 newest matching accounts. Narrow the search to find others.</p>}
+    <ul className="item-list">{rows.map((user) => {
+      const lockedNow = Boolean(user.lockedUntil && user.lockedUntil > now);
+      return <li key={user.id}>
+        <div className="item-head"><strong>{user.displayName}</strong><span className="status-pill">{roleLabels[user.role]}</span>{user.helperStatus !== "none" && <span className="status-pill">Helper: {user.helperStatus}</span>}{user.suspendedAt && <span className="status-pill warn">Suspended</span>}{lockedNow && <span className="status-pill warn">Locked out until {formatDateTime(user.lockedUntil!)}</span>}</div>
+        <small className="muted">{user.email}{user.officialTitle ? ` · ${user.officialTitle}` : ""} · joined {formatWhen(user.createdAt)}{user.failedSignIns > 0 ? ` · ${user.failedSignIns} recent failed sign-in${user.failedSignIns === 1 ? "" : "s"}` : ""} · <Link href={adminHref({ tab: "audit", target: user.id })}>Audit history</Link></small>
+        {user.id === viewerId ? <p className="muted">This is you. Another administrator must change your role or status. Change your password from <Link href="/account#password">your account page</Link>.</p> : <details><summary>Manage</summary>
+          <ActionForm action={setUserRole} submitLabel="Save role" className="action-form compact">
+            <input type="hidden" name="userId" value={user.id}/>
+            <label>Role<select name="role" defaultValue={user.role}><option value="member">Community member</option><option value="city_official">City official</option><option value="admin">Administrator</option></select></label>
+            <label>Official title (public; required for city officials)<input name="officialTitle" defaultValue={user.officialTitle ?? ""} maxLength={120} placeholder="Public Works, City of Texas City"/></label>
+          </ActionForm>
+          <ActionForm action={setUserSuspended} submitLabel={user.suspendedAt ? "Reinstate account" : "Suspend account"} buttonClassName="secondary-button" className="action-form compact">
+            <input type="hidden" name="userId" value={user.id}/>
+            <input type="hidden" name="suspend" value={user.suspendedAt ? "false" : "true"}/>
+            <label>Reason (admins only)<input name="reason" required minLength={3} maxLength={500}/></label>
+          </ActionForm>
+          <details><summary>Set a new password</summary>
+            <ActionForm action={setUserPassword} submitLabel="Set password" buttonClassName="secondary-button" className="action-form compact">
+              <p className="muted">Use this when someone is locked out or forgot their password. It clears any sign-in lockout and signs the account out everywhere. Share the password privately and ask them to change it from their account page.</p>
+              <input type="hidden" name="userId" value={user.id}/>
+              <input type="text" name="username" autoComplete="username" value={user.email} readOnly hidden/>
+              <label>New password<input type="password" name="newPassword" required minLength={MIN_PASSWORD_LENGTH} maxLength={MAX_PASSWORD_LENGTH} autoComplete="new-password"/></label>
+              <label>Confirm new password<input type="password" name="confirmPassword" required minLength={MIN_PASSWORD_LENGTH} maxLength={MAX_PASSWORD_LENGTH} autoComplete="new-password"/></label>
+              <label>Your password (to confirm it&apos;s you)<input type="password" name="adminPassword" required maxLength={MAX_PASSWORD_LENGTH} autoComplete="current-password"/></label>
+            </ActionForm>
+          </details>
+          {(lockedNow || user.failedSignIns > 0) && <ActionForm action={clearSignInLockout} submitLabel="Clear sign-in lockout" buttonClassName="secondary-button" className="action-form compact">
+            <input type="hidden" name="userId" value={user.id}/>
+          </ActionForm>}
+          <ActionForm action={signOutUserEverywhere} submitLabel="Sign out of all devices" buttonClassName="secondary-button" className="action-form compact">
+            <input type="hidden" name="userId" value={user.id}/>
+            <label>Reason (admins only)<input name="reason" required minLength={3} maxLength={500} placeholder="Lost phone, shared computer…"/></label>
+          </ActionForm>
+        </details>}
+      </li>;
+    })}</ul>
   </section>;
 }
 
-async function AuditTab() {
-  const rows = await getDb().select({ event: auditEvents, actorName: users.displayName }).from(auditEvents).leftJoin(users, eq(users.id, auditEvents.actorId)).orderBy(desc(auditEvents.createdAt)).limit(200);
+async function AuditTab({ params }: { params: Search }) {
+  const q = params.q?.trim().slice(0, 100);
+  const target = z.uuid().safeParse(params.target).data;
+  const page = Math.max(1, Math.min(1000, Number.parseInt(params.page ?? "1", 10) || 1));
+  const filters: SQL[] = [];
+  if (q) filters.push(or(ilike(auditEvents.action, `%${q}%`), ilike(auditEvents.publicSummary, `%${q}%`))!);
+  if (target) filters.push(or(eq(auditEvents.targetId, target), eq(auditEvents.actorId, target), eq(auditEvents.needId, target))!);
+  const rows = await getDb().select({ event: auditEvents, actorName: users.displayName }).from(auditEvents).leftJoin(users, eq(users.id, auditEvents.actorId))
+    .where(filters.length ? and(...filters) : undefined).orderBy(desc(auditEvents.createdAt)).limit(AUDIT_PAGE_SIZE + 1).offset((page - 1) * AUDIT_PAGE_SIZE);
+  const hasMore = rows.length > AUDIT_PAGE_SIZE;
+  const [targetUser] = target ? await getDb().select({ displayName: users.displayName }).from(users).where(eq(users.id, target)).limit(1) : [];
+  const pageHref = (value: number) => adminHref({ tab: "audit", q, target, page: value > 1 ? String(value) : undefined });
+
   return <section className="panel">
-    <h2>Full audit log (latest 200)</h2>
+    <h2>Full audit log</h2>
     <p className="muted">Includes private details. The public version is on the <Link href="/transparency">transparency page</Link>.</p>
+    <form className="filter-form" action="/admin">
+      <input type="hidden" name="tab" value="audit"/>
+      {target && <input type="hidden" name="target" value={target}/>}
+      <input name="q" defaultValue={q} placeholder="Search action or summary, e.g. user.suspended"/>
+      <button className="secondary-button">Filter</button>
+    </form>
+    {target && <p className="muted">Showing events by or about {targetUser ? <strong>{targetUser.displayName}</strong> : "one record"}. <Link href={adminHref({ tab: "audit", q })}>Show all events</Link></p>}
+    {rows.length === 0 && <p className="muted">No events match.</p>}
     <div className="table-wrap"><table className="audit-table">
       <thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Public summary</th><th>Private details</th></tr></thead>
-      <tbody>{rows.map(({ event, actorName }) => <tr key={event.id}>
+      <tbody>{rows.slice(0, AUDIT_PAGE_SIZE).map(({ event, actorName }) => <tr key={event.id}>
         <td>{formatDateTime(event.createdAt)}</td>
-        <td>{actorName ?? "System"} <small className="muted">({event.actorRole})</small></td>
-        <td><code>{event.action}</code>{event.needId && <> · <Link href={`/needs/${event.needId}`}>report</Link></>}</td>
+        <td>{event.actorId ? <Link href={adminHref({ tab: "audit", target: event.actorId })}>{actorName ?? "Deleted account"}</Link> : "System"} <small className="muted">({event.actorRole})</small></td>
+        <td><code>{event.action}</code>{event.needId && <> · <Link href={`/needs/${event.needId}`}>report</Link></>}{event.targetType === "user" && event.targetId && <> · <Link href={adminHref({ tab: "audit", target: event.targetId })}>account history</Link></>}</td>
         <td>{event.publicSummary}{event.publicNote && <blockquote>{event.publicNote}</blockquote>}</td>
         <td>{event.privateDetails ? <code>{JSON.stringify(event.privateDetails)}</code> : "—"}</td>
       </tr>)}</tbody>
     </table></div>
+    {(page > 1 || hasMore) && <nav className="button-row" aria-label="Audit log pages">
+      {page > 1 && <Link className="secondary-button" href={pageHref(page - 1)}>Newer</Link>}
+      <span className="muted">Page {page}</span>
+      {hasMore && <Link className="secondary-button" href={pageHref(page + 1)}>Older</Link>}
+    </nav>}
   </section>;
 }

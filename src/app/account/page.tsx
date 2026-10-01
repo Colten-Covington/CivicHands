@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { and, count, desc, eq, inArray } from "drizzle-orm";
+import { changePassword } from "@/app/actions/auth";
 import { applyAsHelper } from "@/app/actions/needs";
 import { ActionForm } from "@/components/action-form";
 import { OfferResponse } from "@/components/offer-response";
 import { SiteHeader } from "@/components/site-header";
 import { getDb } from "@/db";
 import { helperApplications, helpOffers, needs, users } from "@/db/schema";
-import { isStaff, requireViewer } from "@/lib/auth";
+import { isStaff, MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH, requireViewer } from "@/lib/auth";
 import { formatWhen } from "@/lib/format";
 import { kindLabels, statusLabels } from "@/lib/needs";
 
@@ -59,6 +60,16 @@ export default async function AccountPage() {
           <label className="checkbox"><input type="checkbox" name="agree" required/>I&apos;ll keep requesters&apos; locations and details private, follow safety guidelines, and understand administrators may revoke access.</label>
           <p className="muted">Your application is visible only to administrators. The public audit log records only that an application was submitted and decided.</p>
         </ActionForm>}
+      </section>
+
+      <section className="panel" id="password">
+        <h2>Password</h2>
+        <p className="muted">Changing your password signs you out on your other devices. If an administrator set a temporary password for you, replace it here.</p>
+        <ActionForm action={changePassword} submitLabel="Change password" pendingLabel="Changing…">
+          <label>Current password<input type="password" name="currentPassword" required maxLength={MAX_PASSWORD_LENGTH} autoComplete="current-password"/></label>
+          <label>New password<input type="password" name="newPassword" required minLength={MIN_PASSWORD_LENGTH} maxLength={MAX_PASSWORD_LENGTH} autoComplete="new-password"/></label>
+          <label>Confirm new password<input type="password" name="confirmPassword" required minLength={MIN_PASSWORD_LENGTH} maxLength={MAX_PASSWORD_LENGTH} autoComplete="new-password"/></label>
+        </ActionForm>
       </section>
 
       <section className="panel">

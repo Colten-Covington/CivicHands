@@ -12,7 +12,8 @@
     "db:push": "dotenv -e .env.local -- drizzle-kit push",
     "db:migrate": "dotenv -e .env.local -- node scripts/migrate.mjs",
     "db:migrate:deploy": "node scripts/migrate.mjs",
-    "db:migrate:baseline": "dotenv -e .env.local -- node scripts/migrate.mjs --baseline"
+    "db:migrate:baseline": "dotenv -e .env.local -- node scripts/migrate.mjs --baseline",
+    "user:set-password": "dotenv -e .env.local -- node scripts/set-password.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.2.0",

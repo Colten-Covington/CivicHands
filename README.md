@@ -35,10 +35,10 @@ If it reports that a type or table **already exists** (codes `42710`/`42P07`), t
 | Who | Can do |
 | --- | --- |
 | Visitor | Browse the map, read each report's public history, read the transparency log |
-| Member (signed in) | Pin reports (10 per day), claim community cleanup, mark claimed work complete, apply to become a vetted helper, accept or decline offers on their own neighbor requests |
+| Member (signed in) | Change their password, pin reports (10 per day), claim community cleanup, mark claimed work complete, apply to become a vetted helper, accept or decline offers on their own neighbor requests |
 | Vetted helper | Everything a member can do, plus offer help on neighbor support requests |
 | City official | Manage every report: change status, post public updates, hide or restore reports |
-| Administrator | Everything a city official can do, plus vet helpers, revoke helper status, designate city officials and administrators, suspend accounts, and view the full audit log |
+| Administrator | Everything a city official can do, plus vet helpers, revoke helper status, designate city officials and administrators, suspend accounts, set a new password for another account, clear sign-in lockouts, sign accounts out of all devices, and view and filter the full audit log |
 
 - **Community cleanup:** any signed-in member can claim an open report; they can release it or mark it complete.
 - **City referral:** volunteers can't claim these; city officials post status changes and public updates.
@@ -53,6 +53,14 @@ Every state change writes an append-only `audit_events` row in the same database
 - **Never public:** emails, password hashes, helper applications, offer messages, and exact neighbor-support locations. On the public map and `/api/needs`, neighbor-support pins are rounded to roughly 1 km.
 
 Passwords are hashed with scrypt. Session tokens are random, stored only as SHA-256 hashes, and sent as `httpOnly`, `SameSite=Lax` cookies. Accounts lock for 15 minutes after 5 failed sign-ins, and suspending an account signs it out everywhere.
+
+### Passwords without email
+
+There is no email-based password reset yet, so:
+
+- **Members** change their own password from **Your account → Password** (requires the current password; other devices are signed out).
+- **Administrators** can set a new password for any other account, including other administrators, from **Admin → Users & roles → Manage → Set a new password**. They must re-enter their own password; the account is unlocked and signed out everywhere, and the change is recorded in the audit log (the password itself never is). Share the new password privately and ask the owner to change it.
+- **If no administrator can sign in** (for example, the only administrator forgot their password), someone with database access can put the `DATABASE_URL` in `.env.local` and run `npm run user:set-password -- admin@example.org`. It prompts for the new password without echoing it (or reads the first line of stdin when piped), unlocks the account, signs it out everywhere, and writes a system audit event.
 
 ## MVP roadmap
 

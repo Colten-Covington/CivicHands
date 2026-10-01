@@ -6,7 +6,7 @@ import { getDb } from "@/db";
 import { helperApplications, helpOffers, needs, sessions, users } from "@/db/schema";
 import { fail, ok, type ActionState } from "@/lib/action-state";
 import { auditInsert } from "@/lib/audit";
-import { getViewer, isAdmin, isStaff } from "@/lib/auth";
+import { checkAccountPassword, getViewer, hashPassword, isAdmin, isStaff, passwordSchema } from "@/lib/auth";
 import { statusLabels } from "@/lib/needs";
 
 /**
@@ -71,6 +71,10 @@ export async function setNeedHidden(_prev: ActionState, formData: FormData): Pro
   if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Please add a reason.");
   const hidden = parsed.data.hidden === "true";
   const { needId, reason } = parsed.data;
+
+  const [need] = await getDb().select({ hidden: needs.hidden }).from(needs).where(eq(needs.id, needId)).limit(1);
+  if (!need) return fail("That report wasn't found.");
+  if (need.hidden === hidden) return fail(hidden ? "That report is already hidden." : "That report is already on the public map.");
 
   await getDb().batch([
     getDb().update(needs).set({ hidden, updatedAt: new Date() }).where(eq(needs.id, needId)),
@@ -174,6 +178,9 @@ export async function setUserSuspended(_prev: ActionState, formData: FormData): 
   const suspend = parsed.data.suspend === "true";
   const { userId, reason } = parsed.data;
   if (userId === viewer.id) return fail("You can't suspend your own account.");
+  const [user] = await getDb().select({ suspendedAt: users.suspendedAt }).from(users).where(eq(users.id, userId)).limit(1);
+  if (!user) return fail("That user wasn't found.");
+  if (Boolean(user.suspendedAt) === suspend) return fail(suspend ? "That account is already suspended." : "That account isn't suspended.");
 
   const audit = auditInsert(viewer, {
     action: suspend ? "user.suspended" : "user.reinstated",
@@ -193,4 +200,88 @@ export async function setUserSuspended(_prev: ActionState, formData: FormData): 
   } else await getDb().batch([update, audit]);
   refreshAll();
   return ok(suspend ? "Account suspended and signed out everywhere." : "Account reinstated.");
+}
+
+const setPasswordSchema = z.object({
+  userId: z.uuid(),
+  newPassword: passwordSchema,
+  confirmPassword: z.string().max(200),
+  adminPassword: z.string().min(1, "Enter your own password to confirm.").max(200),
+}).refine((data) => data.newPassword === data.confirmPassword, { message: "The new passwords don't match." });
+
+/**
+ * There is no email-based reset yet, so administrators can set a new password for another account
+ * (including other administrators) and share it with the owner through a trusted channel. The acting
+ * administrator re-enters their own password. The account is unlocked and signed out everywhere.
+ */
+export async function setUserPassword(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const viewer = await getViewer();
+  if (!viewer || !isAdmin(viewer)) return fail("Only administrators can set passwords.");
+  const parsed = setPasswordSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Please check the form.");
+  const { userId, newPassword, adminPassword } = parsed.data;
+  if (userId === viewer.id) return fail("Change your own password from your account page.");
+
+  const [self] = await getDb().select({ id: users.id, passwordHash: users.passwordHash }).from(users).where(eq(users.id, viewer.id)).limit(1);
+  if (!self) return fail("Please sign in again.");
+  const check = await checkAccountPassword(self, adminPassword);
+  if (check === "locked") return fail("Too many incorrect attempts on your password. Please wait a few minutes and try again.");
+  if (check === "wrong") return fail("Your own password was incorrect.");
+
+  const [user] = await getDb().select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1);
+  if (!user) return fail("That user wasn't found.");
+
+  await getDb().batch([
+    getDb().update(users).set({ passwordHash: await hashPassword(newPassword), failedSignIns: 0, lockedUntil: null }).where(eq(users.id, userId)),
+    getDb().delete(sessions).where(eq(sessions.userId, userId)),
+    auditInsert(viewer, {
+      action: "user.password_set",
+      targetType: "user",
+      targetId: userId,
+      publicSummary: "An administrator set a new password for an account.",
+      privateDetails: { userId, role: user.role },
+    }),
+  ]);
+  refreshAll();
+  return ok("Password set and the account was signed out everywhere. Share the new password privately and ask them to change it from their account page.");
+}
+
+/** Lets a locked-out user try signing in again before the 15-minute lockout ends. */
+export async function clearSignInLockout(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const viewer = await getViewer();
+  if (!viewer || !isAdmin(viewer)) return fail("Only administrators can unlock accounts.");
+  const parsed = z.object({ userId: z.uuid() }).safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return fail("That user wasn't found.");
+  const { userId } = parsed.data;
+
+  const [user] = await getDb().select({ lockedUntil: users.lockedUntil, failedSignIns: users.failedSignIns }).from(users).where(eq(users.id, userId)).limit(1);
+  if (!user) return fail("That user wasn't found.");
+  if ((!user.lockedUntil || user.lockedUntil <= new Date()) && user.failedSignIns === 0) return fail("That account isn't locked.");
+
+  await getDb().batch([
+    getDb().update(users).set({ failedSignIns: 0, lockedUntil: null }).where(eq(users.id, userId)),
+    auditInsert(viewer, { action: "user.unlocked", targetType: "user", targetId: userId, publicSummary: "An administrator cleared an account's sign-in lockout.", privateDetails: { userId } }),
+  ]);
+  refreshAll();
+  return ok("Sign-in lockout cleared.");
+}
+
+/** Ends every active session for an account, e.g. after a lost device. */
+export async function signOutUserEverywhere(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const viewer = await getViewer();
+  if (!viewer || !isAdmin(viewer)) return fail("Only administrators can sign accounts out.");
+  const parsed = z.object({ userId: z.uuid(), reason: z.string().trim().min(3, "Add a short reason for the audit log.").max(500) }).safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Please add a reason.");
+  const { userId, reason } = parsed.data;
+  if (userId === viewer.id) return fail("Use Sign out, or change your password to sign out your other devices.");
+
+  const [user] = await getDb().select({ id: users.id }).from(users).where(eq(users.id, userId)).limit(1);
+  if (!user) return fail("That user wasn't found.");
+
+  await getDb().batch([
+    getDb().delete(sessions).where(eq(sessions.userId, userId)),
+    auditInsert(viewer, { action: "user.signed_out", targetType: "user", targetId: userId, publicSummary: "An administrator signed an account out of all devices.", privateDetails: { userId, reason } }),
+  ]);
+  refreshAll();
+  return ok("Signed out of all devices.");
 }

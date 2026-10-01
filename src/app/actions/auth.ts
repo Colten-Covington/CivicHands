@@ -1,23 +1,21 @@
 "use server";
 import { randomUUID } from "node:crypto";
-import { and, count, eq, isNull, lt, or, sql } from "drizzle-orm";
+import { and, count, eq, isNull } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { getDb } from "@/db";
-import { users } from "@/db/schema";
-import { fail, type ActionState } from "@/lib/action-state";
+import { sessions, users } from "@/db/schema";
+import { fail, ok, type ActionState } from "@/lib/action-state";
 import { auditInsert } from "@/lib/audit";
-import { createSession, databaseConfigured, destroySession, hashPassword, isBootstrapAdmin, safeNext, verifyPassword, type Viewer } from "@/lib/auth";
+import { checkAccountPassword, createSession, databaseConfigured, destroySession, getViewer, hashPassword, isBootstrapAdmin, passwordSchema, safeNext, verifyPassword, type Viewer } from "@/lib/auth";
 
-const MAX_FAILED_SIGN_INS = 5;
-const LOCK_MINUTES = 15;
 // Used to keep response timing similar when an email is unknown.
 let dummyHash: Promise<string> | null = null;
 
 const signUpSchema = z.object({
   displayName: z.string().trim().min(2, "Display name must be at least 2 characters.").max(60),
   email: z.string().trim().toLowerCase().pipe(z.email("Enter a valid email address.")).pipe(z.string().max(254)),
-  password: z.string().min(12, "Use at least 12 characters for your password.").max(200),
+  password: passwordSchema,
   agree: z.literal("on", { message: "Please agree to the community safety guidelines." }),
 });
 
@@ -80,21 +78,11 @@ export async function signIn(_prev: ActionState, formData: FormData): Promise<Ac
     await verifyPassword(password, await dummyHash);
     return generic;
   }
-  // Count the attempt atomically before checking the password so parallel guesses can't skip the lockout.
-  const now = new Date();
-  const [attempt] = await getDb().update(users)
-    .set({ failedSignIns: sql`${users.failedSignIns} + 1` })
-    .where(and(eq(users.id, user.id), or(isNull(users.lockedUntil), lt(users.lockedUntil, now))))
-    .returning({ failedSignIns: users.failedSignIns });
-  if (!attempt) return fail("Too many attempts. Please wait a few minutes and try again.");
-  if (attempt.failedSignIns > MAX_FAILED_SIGN_INS) {
-    await getDb().update(users).set({ failedSignIns: 0, lockedUntil: new Date(now.getTime() + LOCK_MINUTES * 60 * 1000) }).where(eq(users.id, user.id));
-    return fail("Too many attempts. Please wait a few minutes and try again.");
-  }
-  if (!(await verifyPassword(password, user.passwordHash))) return generic;
+  const result = await checkAccountPassword(user, password);
+  if (result === "locked") return fail("Too many attempts. Please wait a few minutes and try again.");
+  if (result === "wrong") return generic;
   if (user.suspendedAt) return fail("This account is suspended. Contact the CivicHands administrators if you believe this is a mistake.");
 
-  await getDb().update(users).set({ failedSignIns: 0, lockedUntil: null }).where(eq(users.id, user.id));
   await promoteBootstrapAdmin(user);
   await createSession(user.id);
   redirect(safeNext(formData.get("next")));
@@ -103,4 +91,34 @@ export async function signIn(_prev: ActionState, formData: FormData): Promise<Ac
 export async function signOut() {
   await destroySession();
   redirect("/");
+}
+
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, "Enter your current password.").max(200),
+  newPassword: passwordSchema,
+  confirmPassword: z.string().max(200),
+}).refine((data) => data.newPassword === data.confirmPassword, { message: "The new passwords don't match." });
+
+/** Signed-in members change their own password. Other devices are signed out; this one gets a fresh session. */
+export async function changePassword(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const viewer = await getViewer();
+  if (!viewer) return fail("Please sign in again.");
+  const parsed = changePasswordSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Please check the form.");
+  const { currentPassword, newPassword } = parsed.data;
+  if (currentPassword === newPassword) return fail("Choose a password that's different from your current one.");
+
+  const [user] = await getDb().select({ id: users.id, passwordHash: users.passwordHash }).from(users).where(eq(users.id, viewer.id)).limit(1);
+  if (!user) return fail("Please sign in again.");
+  const result = await checkAccountPassword(user, currentPassword);
+  if (result === "locked") return fail("Too many attempts. Please wait a few minutes and try again.");
+  if (result === "wrong") return fail("Your current password is incorrect.");
+
+  await getDb().batch([
+    getDb().update(users).set({ passwordHash: await hashPassword(newPassword) }).where(eq(users.id, viewer.id)),
+    getDb().delete(sessions).where(eq(sessions.userId, viewer.id)),
+    auditInsert(viewer, { action: "user.password_changed", targetType: "user", targetId: viewer.id, publicSummary: "A member changed their account password." }),
+  ]);
+  await createSession(viewer.id);
+  return ok("Password changed. You've been signed out on your other devices.");
 }
