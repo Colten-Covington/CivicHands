@@ -15,12 +15,18 @@ CivicHands is a community-care board for reporting local needs, coordinating saf
 1. Copy `.env.example` to `.env.local` and add a Neon `DATABASE_URL`.
 2. Set `ADMIN_EMAILS` to the email address(es) of the first administrator(s).
 3. Run `npm install`.
-4. Run `npm run db:migrate` (or `npm run db:push` for a throwaway database).
+4. Run `npm run db:migrate` (or `npm run db:push` for a throwaway database; don't later run migrations against a pushed database without baselining it, see [Migration errors](#migration-errors)).
 5. Run `npm run dev`, then sign up with an `ADMIN_EMAILS` address. It becomes an administrator only while the deployment has no active administrator; after that, administrators manage roles from `/admin`.
 
 Without `DATABASE_URL`, the home page shows clearly labeled sample reports, accounts are disabled, and the report API returns a service-unavailable response. With a database, only real reports are shown.
 
 For production, configure `DATABASE_URL` in the deployment environment. Vercel runs the Drizzle migrations automatically during production builds when `DATABASE_URL` is set; production builds without it skip migrations and use sample data, and preview builds do not modify the production database. Create the administrator accounts before sharing the site publicly, set `NODE_ENV=production` (secure cookies), and set `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` when running more than one instance.
+
+### Migration errors
+
+`npm run db:migrate` and the Vercel build run `scripts/migrate.mjs`, which prints the database host, the migrations it found, and on failure the underlying Postgres error (code, detail, failing query) with a hint. (`drizzle-kit migrate` hides these behind `exited with 1`.)
+
+If it reports that a type or table **already exists** (codes `42710`/`42P07`), the database schema was created with `db:push` and has no migration history. If that schema matches the current migrations, record them as applied without running them by putting the production `DATABASE_URL` in `.env.local` and running `npm run db:migrate:baseline`, then redeploy. Otherwise, point `DATABASE_URL` at an empty database.
 
 ## Roles and workflows
 
