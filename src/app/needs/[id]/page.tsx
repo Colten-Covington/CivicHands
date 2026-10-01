@@ -22,7 +22,8 @@ export default async function NeedPage({ params }: { params: Promise<{ id: strin
   const viewer = await getViewer();
   const [row] = await getDb().select().from(needs).where(eq(needs.id, id)).limit(1);
   const staff = isStaff(viewer);
-  if (!row || (row.hidden && !staff)) notFound();
+  const reporter = Boolean(viewer && row?.reporterId === viewer.id);
+  if (!row || (row.hidden && !staff) || (row.reviewStatus !== "approved" && !staff && !reporter)) notFound();
 
   const offers = await loadViewerOffers(viewer, [row.id]);
   const need = toMapNeed(row, viewer, offers.get(row.id) ?? null);
@@ -37,12 +38,14 @@ export default async function NeedPage({ params }: { params: Promise<{ id: strin
       <p className="lede small">{need.description}</p>
       <p className="detail-location">{need.approximate ? <EyeOff size={17}/> : <MapPin size={17}/>}{need.privateLocation ?? need.location}, {need.city}</p>
       <p className="muted">{need.category} · Reported {formatWhen(need.createdAt)}</p>
+      {reporter && row.reviewStatus === "changes_requested" && <section className="notice"><strong>A moderator requested wording changes before publication.</strong>{row.moderationFeedback && <p>{row.moderationFeedback}</p>}<p>Open Your account to revise the title and description.</p></section>}
+      {staff && row.reviewStatus !== "approved" && <p className="notice">Review status: {row.reviewStatus.replaceAll("_", " ")}. This report is not visible publicly.</p>}
       {need.kind === "city_hazard" && <p className="notice">This is a job for trained city crews. Please stay clear and don&apos;t attempt it yourself. Updates from city officials appear below.</p>}
       <NeedActions need={need} showDetailsLink={false}/>
-      {staff && <section className="panel"><h2>Manage report</h2><StaffNeedControls needId={row.id} status={row.status} hidden={row.hidden}/></section>}
+      {staff && <section className="panel"><h2>Manage report</h2><StaffNeedControls needId={row.id} status={row.status} hidden={row.hidden} reviewStatus={row.reviewStatus} hasReporter={Boolean(row.reporterId)}/></section>}
       <section className="panel">
         <h2>Public history</h2>
-        <p className="muted">Every change is recorded. Residents and helpers appear by role only; city officials and administrators are named.</p>
+        <p className="muted">Every change is recorded. Residents and helpers appear by role only; moderators, city officials, and administrators are named.</p>
         <Timeline events={timeline}/>
       </section>
     </section>

@@ -8,6 +8,7 @@ CivicHands is a community-care board for reporting local needs, coordinating saf
 - Public cleanup and private neighbor assistance are separate workflows.
 - Dangerous roadway, utility, tree, and infrastructure issues are referred to the proper city service.
 - Exact addresses and sensitive details for neighbor requests are never public.
+- Reports are reviewed before publication; hateful, harassing, or demeaning content is not allowed.
 - Trust comes from verified completion history and community references.
 
 ## Local setup
@@ -34,12 +35,15 @@ If it reports that a type or table **already exists** (codes `42710`/`42P07`), t
 
 | Who | Can do |
 | --- | --- |
-| Visitor | Browse the map, read each report's public history, read the transparency log |
-| Member (signed in) | Change their password, pin reports (10 per day), claim community cleanup, mark claimed work complete, apply to become a vetted helper, accept or decline offers on their own neighbor requests |
+| Visitor | Browse the map, submit a public cleanup or city-hazard report for review, read each published report's history, read the transparency log |
+| Member (signed in) | Change their password, submit reports for review (10 per day), revise wording when requested, claim approved community cleanup, mark claimed work complete, apply to become a vetted helper, accept or decline offers on their own neighbor requests |
 | Vetted helper | Everything a member can do, plus offer help on neighbor support requests |
-| City official | Manage every report: change status, post public updates, hide or restore reports |
-| Administrator | Everything a city official can do, plus vet helpers, revoke helper status, designate city officials and administrators, suspend accounts, set a new password for another account, clear sign-in lockouts, sign accounts out of all devices, and view and filter the full audit log |
+| Moderator | Review and approve reports, request respectful wording changes, revise or decline anonymous reports, change status, post public updates, hide or restore reports |
+| City official | Everything a moderator can do |
+| Administrator | Everything a city official can do, plus vet helpers, revoke helper status, designate moderators, city officials, and administrators, suspend accounts, set a new password for another account, clear sign-in lockouts, sign accounts out of all devices, and view and filter the full audit log |
 
+- Public reports do not require an account, but stay private until a moderator, city official, or administrator reviews and approves them. At-home neighbor-support requests require an account so requesters can choose a vetted helper and keep a private history.
+- Moderators can ask signed-in reporters to revise wording before publication. Anonymous reports cannot be returned to an unauthenticated author, so staff must rewrite and approve them or decline them.
 - **Community cleanup:** any signed-in member can claim an open report; they can release it or mark it complete.
 - **City referral:** volunteers can't claim these; city officials post status changes and public updates.
 - **Neighbor support:** only vetted helpers can offer; the requester picks a helper, and only that helper sees the exact location.
@@ -49,7 +53,7 @@ If it reports that a type or table **already exists** (codes `42710`/`42P07`), t
 Every state change writes an append-only `audit_events` row in the same database batch as the change.
 
 - **Public (`/transparency` and each report's history):** what happened, when, and the actor's role. City officials and administrators act in a public capacity and are named with their title. Residents and helpers are never named.
-- **Private (administrators only):** moderation and suspension reasons, helper vetting notes, and which account was affected.
+- **Private:** requested wording feedback is visible only to the report's signed-in author and administrators; moderation reasons, suspension reasons, helper vetting notes, and affected account details are administrators-only.
 - **Never public:** emails, password hashes, helper applications, offer messages, and exact neighbor-support locations. On the public map and `/api/needs`, neighbor-support pins are rounded to roughly 1 km.
 
 Passwords are hashed with scrypt. Session tokens are random, stored only as SHA-256 hashes, and sent as `httpOnly`, `SameSite=Lax` cookies. Accounts lock for 15 minutes after 5 failed sign-ins, and suspending an account signs it out everywhere.

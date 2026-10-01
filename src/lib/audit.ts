@@ -46,6 +46,7 @@ const roleLabels: Record<string, string> = {
   system: "CivicHands",
   member: "A community member",
   helper: "A vetted helper",
+  moderator: "Moderator",
   city_official: "City official",
   admin: "Administrator",
 };

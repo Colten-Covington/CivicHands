@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { and, count, desc, eq, inArray } from "drizzle-orm";
 import { changePassword } from "@/app/actions/auth";
-import { applyAsHelper } from "@/app/actions/needs";
+import { applyAsHelper, resubmitNeedWording } from "@/app/actions/needs";
 import { ActionForm } from "@/components/action-form";
 import { OfferResponse } from "@/components/offer-response";
 import { SiteHeader } from "@/components/site-header";
@@ -14,7 +14,7 @@ import { kindLabels, statusLabels } from "@/lib/needs";
 export const metadata = { title: "Your account — CivicHands" };
 export const dynamic = "force-dynamic";
 
-const roleLabels = { member: "Community member", city_official: "City official", admin: "Administrator" } as const;
+const roleLabels = { member: "Community member", moderator: "Moderator", city_official: "City official", admin: "Administrator" } as const;
 const helperCopy = {
   none: "Vetted helpers can offer neighbor support, where privacy and safety matter most.",
   pending: "Your helper application is being reviewed by an administrator.",
@@ -82,6 +82,17 @@ export default async function AccountPage() {
           return <li key={need.id}>
             <div className="item-head"><Link href={`/needs/${need.id}`}><strong>{need.title}</strong></Link><span className="status-pill">{statusLabels[need.status]}</span>{need.hidden && <span className="status-pill warn">Hidden by moderators</span>}</div>
             <small className="muted">{kindLabels[need.kind]} · {formatWhen(need.createdAt)}</small>
+            {need.reviewStatus === "pending" && <p className="muted">Awaiting moderator review before publication.</p>}
+            {need.reviewStatus === "rejected" && <p className="muted">This report was not approved for publication.</p>}
+            {need.reviewStatus === "changes_requested" && <details open>
+              <summary>Moderator requested wording changes</summary>
+              {need.moderationFeedback && <p className="muted">{need.moderationFeedback}</p>}
+              <ActionForm action={resubmitNeedWording} submitLabel="Resubmit for review" className="action-form compact">
+                <input type="hidden" name="needId" value={need.id}/>
+                <label>Revised title<input name="title" required minLength={5} maxLength={100} defaultValue={need.title}/></label>
+                <label>Revised description<textarea name="description" required minLength={10} maxLength={1000} defaultValue={need.description}/></label>
+              </ActionForm>
+            </details>}
             {offers.map(({ offer, helperName, helperSince, helperStatus }) => <div className="offer-card" key={offer.id}>
               <div><strong>{helperName}</strong>{helperStatus === "approved" && <span className="status-pill verified">Vetted helper</span>}</div>
               <small className="muted">Member since {formatWhen(helperSince)} · {completedBy.get(offer.helperId) ?? 0} completed {completedBy.get(offer.helperId) === 1 ? "task" : "tasks"}</small>

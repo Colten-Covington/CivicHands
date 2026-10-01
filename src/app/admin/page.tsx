@@ -15,10 +15,11 @@ import { kindLabels, statusLabels } from "@/lib/needs";
 export const metadata = { title: "Administration — CivicHands" };
 export const dynamic = "force-dynamic";
 
-type Search = { tab?: string; q?: string; status?: string; visibility?: string; role?: string; account?: string; target?: string; page?: string };
+type Search = { tab?: string; q?: string; status?: string; visibility?: string; review?: string; role?: string; account?: string; target?: string; page?: string };
 const needStatuses = ["open", "claimed", "completed", "referred", "closed"] as const;
-const roles = ["member", "city_official", "admin"] as const;
-const roleLabels = { member: "Member", city_official: "City official", admin: "Administrator" } as const;
+const reviewStatuses = ["pending", "approved", "changes_requested", "rejected"] as const;
+const roles = ["member", "moderator", "city_official", "admin"] as const;
+const roleLabels = { member: "Member", moderator: "Moderator", city_official: "City official", admin: "Administrator" } as const;
 const accountFilters = { suspended: "Suspended", locked: "Locked out", helper_pending: "Helper application pending", helpers: "Vetted helpers" } as const;
 const AUDIT_PAGE_SIZE = 100;
 const AUDIT_MAX_PAGE = 1000;
@@ -40,9 +41,9 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
   return <main>
     <SiteHeader/>
     <section className="page">
-      <p className="eyebrow">{admin ? "Administrator" : `City official${viewer.officialTitle ? ` · ${viewer.officialTitle}` : ""}`}</p>
+      <p className="eyebrow">{admin ? "Administrator" : viewer.role === "moderator" ? "Moderator" : `City official${viewer.officialTitle ? ` · ${viewer.officialTitle}` : ""}`}</p>
       <h1 className="page-title">{admin ? "Administration" : "Manage reports"}</h1>
-      <p className="muted">Every action here is recorded in the <Link href="/transparency">public audit log</Link> under your name. Private notes and reasons are visible to administrators only.</p>
+      <p className="muted">Every action here is recorded in the <Link href="/transparency">public audit log</Link> under your name. Requested wording feedback is shared only with its reporter; internal notes and reasons are visible to administrators only.</p>
       <Overview admin={admin}/>
       <nav className="tab-row" aria-label="Admin sections">{tabs.map(([key, label]) => <Link key={key} className={tab === key ? "active" : ""} href={`/admin?tab=${key}`}>{label}</Link>)}</nav>
       {tab === "reports" && <ReportsTab params={params}/>}
@@ -57,9 +58,10 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
 async function Overview({ admin }: { admin: boolean }) {
   const db = getDb();
   const now = new Date();
-  const [[open], [hidden], [pending], [suspended], [locked]] = await Promise.all([
-    db.select({ value: count() }).from(needs).where(and(eq(needs.status, "open"), eq(needs.hidden, false))),
+  const [[open], [hidden], [pendingReview], [pending], [suspended], [locked]] = await Promise.all([
+    db.select({ value: count() }).from(needs).where(and(eq(needs.status, "open"), eq(needs.hidden, false), eq(needs.reviewStatus, "approved"))),
     db.select({ value: count() }).from(needs).where(eq(needs.hidden, true)),
+    db.select({ value: count() }).from(needs).where(inArray(needs.reviewStatus, ["pending", "changes_requested"])),
     admin ? db.select({ value: count() }).from(helperApplications).where(eq(helperApplications.status, "pending")) : Promise.resolve([{ value: 0 }]),
     admin ? db.select({ value: count() }).from(users).where(isNotNull(users.suspendedAt)) : Promise.resolve([{ value: 0 }]),
     admin ? db.select({ value: count() }).from(users).where(gt(users.lockedUntil, now)) : Promise.resolve([{ value: 0 }]),
@@ -67,6 +69,7 @@ async function Overview({ admin }: { admin: boolean }) {
   const stats: [number, string, string][] = [
     [open.value, "Open reports", adminHref({ tab: "reports", status: "open", visibility: "visible" })],
     [hidden.value, "Hidden reports", adminHref({ tab: "reports", visibility: "hidden" })],
+    [pendingReview.value, "Reports needing review", adminHref({ tab: "reports", review: "pending" })],
   ];
   if (admin) stats.push(
     [pending.value, "Helper applications", adminHref({ tab: "helpers" })],
@@ -79,7 +82,10 @@ async function Overview({ admin }: { admin: boolean }) {
 async function ReportsTab({ params }: { params: Search }) {
   const filters: SQL[] = [];
   const status = needStatuses.find((value) => value === params.status);
+  const review = reviewStatuses.find((value) => value === params.review);
   if (status) filters.push(eq(needs.status, status));
+  if (review === "pending") filters.push(inArray(needs.reviewStatus, ["pending", "changes_requested"]));
+  else if (review) filters.push(eq(needs.reviewStatus, review));
   if (params.visibility === "hidden") filters.push(eq(needs.hidden, true));
   if (params.visibility === "visible") filters.push(eq(needs.hidden, false));
   const q = params.q?.trim().slice(0, 100);
@@ -91,14 +97,15 @@ async function ReportsTab({ params }: { params: Search }) {
       <input type="hidden" name="tab" value="reports"/>
       <input name="q" defaultValue={q} placeholder="Search title, location, category"/>
       <select name="status" defaultValue={status ?? ""}><option value="">Any status</option>{needStatuses.map((value) => <option key={value} value={value}>{statusLabels[value]}</option>)}</select>
+      <select name="review" defaultValue={review ?? ""}><option value="">Any review state</option><option value="pending">Needs review</option><option value="approved">Approved</option><option value="changes_requested">Changes requested</option><option value="rejected">Declined</option></select>
       <select name="visibility" defaultValue={params.visibility ?? ""}><option value="">Visible &amp; hidden</option><option value="visible">Visible</option><option value="hidden">Hidden</option></select>
       <button className="secondary-button">Filter</button>
     </form>
     {rows.length === 0 && <p className="muted">No reports match.</p>}
     <ul className="item-list">{rows.map((need) => <li key={need.id}>
-      <div className="item-head"><Link href={`/needs/${need.id}`}><strong>{need.title}</strong></Link><span className="status-pill">{kindLabels[need.kind]}</span><span className="status-pill">{statusLabels[need.status]}</span>{need.hidden && <span className="status-pill warn">Hidden</span>}</div>
+      <div className="item-head"><Link href={`/needs/${need.id}`}><strong>{need.title}</strong></Link><span className="status-pill">{kindLabels[need.kind]}</span><span className="status-pill">{statusLabels[need.status]}</span><span className={`status-pill ${need.reviewStatus === "approved" ? "" : "warn"}`}>Review: {need.reviewStatus.replaceAll("_", " ")}</span>{need.hidden && <span className="status-pill warn">Hidden</span>}</div>
       <small className="muted">{need.kind === "neighbor_help" ? "Approximate area (exact location private)" : need.location}, {need.city} · updated {formatWhen(need.updatedAt)}</small>
-      <details><summary>Manage</summary><StaffNeedControls needId={need.id} status={need.status} hidden={need.hidden}/></details>
+      <details><summary>Manage</summary><StaffNeedControls needId={need.id} status={need.status} hidden={need.hidden} reviewStatus={need.reviewStatus} hasReporter={Boolean(need.reporterId)}/></details>
     </li>)}</ul>
   </section>;
 }
@@ -172,7 +179,7 @@ async function UsersTab({ params, viewerId }: { params: Search; viewerId: string
         {user.id === viewerId ? <p className="muted">This is you. Another administrator must change your role or status. Change your password from <Link href="/account#password">your account page</Link>.</p> : <details><summary>Manage</summary>
           <ActionForm action={setUserRole} submitLabel="Save role" className="action-form compact">
             <input type="hidden" name="userId" value={user.id}/>
-            <label>Role<select name="role" defaultValue={user.role}><option value="member">Community member</option><option value="city_official">City official</option><option value="admin">Administrator</option></select></label>
+            <label>Role<select name="role" defaultValue={user.role}><option value="member">Community member</option><option value="moderator">Moderator</option><option value="city_official">City official</option><option value="admin">Administrator</option></select></label>
             <label>Official title (public; required for city officials)<input name="officialTitle" defaultValue={user.officialTitle ?? ""} maxLength={120} placeholder="Public Works, City of Texas City"/></label>
           </ActionForm>
           <ActionForm action={setUserSuspended} submitLabel={user.suspendedAt ? "Reinstate account" : "Suspend account"} buttonClassName="secondary-button" className="action-form compact">

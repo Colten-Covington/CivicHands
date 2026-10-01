@@ -121,7 +121,7 @@ export function isAdmin(viewer: Viewer | null) {
 
 /** City officials and administrators may manage reports. */
 export function isStaff(viewer: Viewer | null) {
-  return (viewer?.role === "admin" || viewer?.role === "city_official") && !viewer.mustChangePassword;
+  return (viewer?.role === "admin" || viewer?.role === "moderator" || viewer?.role === "city_official") && !viewer.mustChangePassword;
 }
 
 export function isBootstrapAdmin(email: string) {

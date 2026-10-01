@@ -29,12 +29,61 @@ function refreshAll() {
   revalidatePath("/", "layout");
 }
 
-const roleNames = { member: "community member", city_official: "city official", admin: "administrator" } as const;
+const roleNames = { member: "community member", moderator: "moderator", city_official: "city official", admin: "administrator" } as const;
 
-/** City officials and administrators can move any report through its lifecycle with a public note. */
+/** Reviews user-submitted wording before it can appear publicly. */
+export async function reviewNeed(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const viewer = await getViewer();
+  if (!isStaff(viewer)) return fail("Only moderators, city officials, and administrators can review reports.");
+  const parsed = z.object({
+    needId: z.uuid(),
+    decision: z.enum(["approve", "request_changes", "reject"]),
+    feedback: z.preprocess((value) => value === "" ? undefined : value, z.string().trim().max(500).optional()),
+    revisedTitle: z.preprocess((value) => value === "" ? undefined : value, z.string().trim().min(5).max(100).optional()),
+    revisedDescription: z.preprocess((value) => value === "" ? undefined : value, z.string().trim().min(10).max(1000).optional()),
+  }).safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return fail("Please check the review details.");
+  const { needId, decision, feedback, revisedTitle, revisedDescription } = parsed.data;
+  if (decision !== "approve" && !feedback) return fail("Add a short moderator note.");
+
+  const [need] = await getDb().select({ reporterId: needs.reporterId, reviewStatus: needs.reviewStatus }).from(needs).where(eq(needs.id, needId)).limit(1);
+  if (!need || (need.reviewStatus !== "pending" && need.reviewStatus !== "changes_requested")) return fail("That report is no longer waiting for review.");
+  if (decision === "request_changes" && !need.reporterId) return fail("Anonymous reports must be edited by a moderator or declined.");
+
+  const reviewStatus = decision === "approve" ? "approved" : decision === "request_changes" ? "changes_requested" : "rejected";
+  const action = decision === "approve" ? "need.approved" : decision === "request_changes" ? "need.changes_requested" : "need.rejected";
+  const publicSummary = decision === "approve"
+    ? "A report was approved and published after review."
+    : decision === "request_changes"
+      ? "A moderator requested wording changes before publication."
+      : "A report was declined during moderation review.";
+  const changes: Partial<typeof needs.$inferInsert> = {
+    reviewStatus,
+    moderationFeedback: decision === "request_changes" ? feedback : null,
+    updatedAt: new Date(),
+  };
+  if (revisedTitle) changes.title = revisedTitle;
+  if (revisedDescription) changes.description = revisedDescription;
+
+  await getDb().batch([
+    getDb().update(needs).set(changes).where(eq(needs.id, needId)),
+    auditInsert(viewer, {
+      action,
+      targetType: "need",
+      targetId: needId,
+      needId,
+      publicSummary,
+      privateDetails: { feedback: feedback || null, wordingEdited: Boolean(revisedTitle || revisedDescription) },
+    }),
+  ]);
+  revalidatePath("/", "layout");
+  return ok(decision === "approve" ? "Report approved and published." : decision === "request_changes" ? "Wording changes requested." : "Report declined.");
+}
+
+/** Moderators, city officials, and administrators can move any report through its lifecycle with a public note. */
 export async function updateNeedStatus(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const viewer = await getViewer();
-  if (!isStaff(viewer)) return fail("Only city officials and administrators can manage reports.");
+  if (!isStaff(viewer)) return fail("Only moderators, city officials, and administrators can manage reports.");
   const parsed = z.object({
     needId: z.uuid(),
     status: z.enum(["open", "claimed", "completed", "referred", "closed"]),
@@ -43,8 +92,9 @@ export async function updateNeedStatus(_prev: ActionState, formData: FormData): 
   if (!parsed.success) return fail("Please choose a status and keep the note under 500 characters.");
   const { needId, status, publicNote } = parsed.data;
 
-  const [need] = await getDb().select({ status: needs.status }).from(needs).where(eq(needs.id, needId)).limit(1);
+  const [need] = await getDb().select({ status: needs.status, reviewStatus: needs.reviewStatus }).from(needs).where(eq(needs.id, needId)).limit(1);
   if (!need) return fail("That report wasn't found.");
+  if (need.reviewStatus !== "approved") return fail("Approve the report before publishing status updates.");
   if (need.status === status && !publicNote) return fail("Choose a new status or add a public update.");
 
   const now = new Date();
@@ -66,7 +116,7 @@ export async function updateNeedStatus(_prev: ActionState, formData: FormData): 
 /** Moderation: remove a report from the public map (or restore it). The reason stays private to staff. */
 export async function setNeedHidden(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const viewer = await getViewer();
-  if (!isStaff(viewer)) return fail("Only city officials and administrators can moderate reports.");
+  if (!isStaff(viewer)) return fail("Only moderators, city officials, and administrators can moderate reports.");
   const parsed = z.object({ needId: z.uuid(), hidden: z.enum(["true", "false"]), reason: z.string().trim().min(3, "Add a short reason for the audit log.").max(500) }).safeParse(Object.fromEntries(formData));
   if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Please add a reason.");
   const hidden = parsed.data.hidden === "true";
@@ -143,7 +193,7 @@ export async function setUserRole(_prev: ActionState, formData: FormData): Promi
   if (!viewer || !isAdmin(viewer)) return fail("Only administrators can change roles.");
   const parsed = z.object({
     userId: z.uuid(),
-    role: z.enum(["member", "city_official", "admin"]),
+    role: z.enum(["member", "moderator", "city_official", "admin"]),
     officialTitle: z.string().trim().max(120).optional(),
   }).safeParse(Object.fromEntries(formData));
   if (!parsed.success) return fail("Please check the role details.");

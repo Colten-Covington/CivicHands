@@ -1,4 +1,5 @@
 "use server";
+import { randomUUID } from "node:crypto";
 import { and, count, eq, gt, ne } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -35,34 +36,69 @@ function refresh(needId?: string) {
 
 export async function createNeed(input: unknown): Promise<ActionResult & { id?: string }> {
   const viewer = await getViewer();
-  if (!viewer) return fail("Please sign in to add a report.");
   const parsed = reportSchema.safeParse(input);
   if (!parsed.success) return fail("Please check the report details.");
   const data = parsed.data;
+  if (!viewer && data.kind === "neighbor_help") return fail("Please sign in to request help at home.");
 
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const [{ value: recent }] = await getDb().select({ value: count() }).from(needs).where(and(eq(needs.reporterId, viewer.id), gt(needs.createdAt, since)));
-  if (recent >= MAX_REPORTS_PER_DAY) return fail("You've reached today's report limit. Please try again tomorrow.");
+  if (viewer) {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const [{ value: recent }] = await getDb().select({ value: count() }).from(needs).where(and(eq(needs.reporterId, viewer.id), gt(needs.createdAt, since)));
+    if (recent >= MAX_REPORTS_PER_DAY) return fail("You've reached today's report limit. Please try again tomorrow.");
+  }
 
   const isNeighbor = data.kind === "neighbor_help";
-  const [created] = await getDb().insert(needs).values({
-    ...data,
-    location: isNeighbor ? APPROXIMATE_LOCATION : data.location,
-    privateLocation: isNeighbor ? data.location : null,
-    reporterId: viewer.id,
-    detailsPrivate: isNeighbor,
-    status: data.kind === "city_hazard" ? "referred" : "open",
-  }).returning({ id: needs.id });
+  const needId = randomUUID();
+  await getDb().batch([
+    getDb().insert(needs).values({
+      id: needId,
+      ...data,
+      location: isNeighbor ? APPROXIMATE_LOCATION : data.location,
+      privateLocation: isNeighbor ? data.location : null,
+      reporterId: viewer?.id ?? null,
+      detailsPrivate: isNeighbor,
+      status: data.kind === "city_hazard" ? "referred" : "open",
+      reviewStatus: "pending",
+    }),
+    auditInsert(viewer, {
+      action: "need.created",
+      targetType: "need",
+      targetId: needId,
+      needId,
+      publicSummary: "A report was submitted for moderator review.",
+    }),
+  ]);
+  refresh(needId);
+  return { ...ok("Thanks. Your report will appear after a moderator reviews it."), id: needId };
+}
 
-  await auditInsert(viewer, {
-    action: "need.created",
-    targetType: "need",
-    targetId: created.id,
-    needId: created.id,
-    publicSummary: data.kind === "city_hazard" ? "Report created and referred to the city." : "Report created.",
-  });
-  refresh(created.id);
-  return { ...ok("It's on the map."), id: created.id };
+/** Reporters can revise wording requested by a moderator and resubmit it for review. */
+export async function resubmitNeedWording(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const viewer = await getViewer();
+  if (!viewer) return fail("Please sign in to update your report.");
+  const parsed = z.object({
+    needId: z.uuid(),
+    title: z.string().trim().min(5).max(100),
+    description: z.string().trim().min(10).max(1000),
+  }).safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return fail("Please check the revised title and description.");
+  const { needId, title, description } = parsed.data;
+
+  const [need] = await getDb().select({ reporterId: needs.reporterId, reviewStatus: needs.reviewStatus }).from(needs).where(eq(needs.id, needId)).limit(1);
+  if (!need || need.reporterId !== viewer.id || need.reviewStatus !== "changes_requested") return fail("That report can't be revised.");
+
+  await getDb().batch([
+    getDb().update(needs).set({ title, description, reviewStatus: "pending", moderationFeedback: null, updatedAt: new Date() }).where(eq(needs.id, needId)),
+    auditInsert(viewer, {
+      action: "need.wording_resubmitted",
+      targetType: "need",
+      targetId: needId,
+      needId,
+      publicSummary: "A revised report was submitted for moderator review.",
+    }),
+  ]);
+  refresh(needId);
+  return ok("Your revised report is waiting for moderator review.");
 }
 
 export async function offerHelp(needId: string, message?: string): Promise<ActionResult> {
@@ -73,7 +109,7 @@ export async function offerHelp(needId: string, message?: string): Promise<Actio
   if (!note.success) return fail("Keep your message under 500 characters.");
 
   const [need] = await getDb().select().from(needs).where(eq(needs.id, needId)).limit(1);
-  if (!need || need.hidden) return fail("That report wasn't found.");
+  if (!need || need.hidden || need.reviewStatus !== "approved") return fail("That report wasn't found.");
   if (need.kind === "city_hazard") return fail("City hazards are handled by trained crews. Please don't attempt this yourself.");
   if (need.reporterId === viewer.id) return fail("You can't offer help on your own report.");
   if (need.status !== "open") return fail("Someone is already helping with this one.");
@@ -138,7 +174,7 @@ export async function respondToOffer(offerId: string, accept: boolean): Promise<
   if (!viewer) return fail("Please sign in.");
   if (!idSchema.safeParse(offerId).success) return fail("That offer wasn't found.");
   const [row] = await getDb().select({ offer: helpOffers, need: needs }).from(helpOffers).innerJoin(needs, eq(needs.id, helpOffers.needId)).where(eq(helpOffers.id, offerId)).limit(1);
-  if (!row || row.need.reporterId !== viewer.id) return fail("That offer wasn't found.");
+  if (!row || row.need.reporterId !== viewer.id || row.need.reviewStatus !== "approved") return fail("That offer wasn't found.");
   if (row.offer.status !== "pending") return fail("That offer has already been answered.");
 
   const now = new Date();
@@ -179,7 +215,7 @@ export async function completeNeed(needId: string): Promise<ActionResult> {
   if (!viewer) return fail("Please sign in.");
   if (!idSchema.safeParse(needId).success) return fail("That report wasn't found.");
   const [need] = await getDb().select().from(needs).where(eq(needs.id, needId)).limit(1);
-  if (!need || need.status !== "claimed") return fail("Only reports in progress can be completed.");
+  if (!need || need.reviewStatus !== "approved" || need.status !== "claimed") return fail("Only approved reports in progress can be completed.");
   const [assigned] = await getDb().select({ id: helpOffers.id }).from(helpOffers).where(and(eq(helpOffers.needId, needId), eq(helpOffers.helperId, viewer.id), eq(helpOffers.status, "accepted"))).limit(1);
   if (!assigned && need.reporterId !== viewer.id) return fail("Only the helper or the requester can mark this complete.");
 
