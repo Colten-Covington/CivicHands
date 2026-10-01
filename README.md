@@ -77,7 +77,7 @@ Set `ADMIN_TEMP_PASSWORD` (at least 12 characters) alongside `ADMIN_EMAILS` in t
 
 Setting the temporary password also clears any sign-in lockout, signs the account out everywhere, and writes a system audit event. The password is never logged.
 
-Each value is applied to an account **once**: later deploys with the same `ADMIN_TEMP_PASSWORD` leave the account alone, so they won't undo the password the administrator chose. To recover a forgotten administrator password, change `ADMIN_TEMP_PASSWORD` to a new value and redeploy. Remove the variable once the administrator has signed in and picked their own password; anyone who can read the deployment's environment variables can sign in as these administrators until then. Locally, run `npm run db:bootstrap-admins`; it reads `.env.local`.
+Each distinct value is applied to an account **once**, even if a later deployment changes the configured value and then rolls back to an earlier one. Later deploys with an already-applied `ADMIN_TEMP_PASSWORD` leave the account alone, so they won't undo the password the administrator chose. To recover a forgotten administrator password, change `ADMIN_TEMP_PASSWORD` to a new value and redeploy. Remove the variable once the administrator has signed in and picked their own password; anyone who can read the deployment's environment variables can sign in as these administrators until then. Locally, run `npm run db:bootstrap-admins`; it reads `.env.local`.
 
 ## MVP roadmap
 

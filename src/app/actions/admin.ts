@@ -253,6 +253,7 @@ export async function clearSignInLockout(_prev: ActionState, formData: FormData)
   const parsed = z.object({ userId: z.uuid() }).safeParse(Object.fromEntries(formData));
   if (!parsed.success) return fail("That user wasn't found.");
   const { userId } = parsed.data;
+  if (userId === viewer.id) return fail("Another administrator must clear your sign-in lockout.");
 
   const [user] = await getDb().select({ lockedUntil: users.lockedUntil, failedSignIns: users.failedSignIns }).from(users).where(eq(users.id, userId)).limit(1);
   if (!user) return fail("That user wasn't found.");

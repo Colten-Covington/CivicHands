@@ -21,6 +21,7 @@ const roles = ["member", "city_official", "admin"] as const;
 const roleLabels = { member: "Member", city_official: "City official", admin: "Administrator" } as const;
 const accountFilters = { suspended: "Suspended", locked: "Locked out", helper_pending: "Helper application pending", helpers: "Vetted helpers" } as const;
 const AUDIT_PAGE_SIZE = 100;
+const AUDIT_MAX_PAGE = 1000;
 
 function adminHref(params: Record<string, string | undefined>) {
   const query = new URLSearchParams(Object.entries(params).filter((entry): entry is [string, string] => Boolean(entry[1])));
@@ -205,7 +206,7 @@ async function UsersTab({ params, viewerId }: { params: Search; viewerId: string
 async function AuditTab({ params }: { params: Search }) {
   const q = params.q?.trim().slice(0, 100);
   const target = z.uuid().safeParse(params.target).data;
-  const page = Math.max(1, Math.min(1000, Number.parseInt(params.page ?? "1", 10) || 1));
+  const page = Math.max(1, Math.min(AUDIT_MAX_PAGE, Number.parseInt(params.page ?? "1", 10) || 1));
   const filters: SQL[] = [];
   if (q) filters.push(or(ilike(auditEvents.action, `%${q}%`), ilike(auditEvents.publicSummary, `%${q}%`))!);
   if (target) filters.push(or(eq(auditEvents.targetId, target), eq(auditEvents.actorId, target), eq(auditEvents.needId, target))!);
@@ -239,7 +240,8 @@ async function AuditTab({ params }: { params: Search }) {
     {(page > 1 || hasMore) && <nav className="button-row" aria-label="Audit log pages">
       {page > 1 && <Link className="secondary-button" href={pageHref(page - 1)}>Newer</Link>}
       <span className="muted">Page {page}</span>
-      {hasMore && <Link className="secondary-button" href={pageHref(page + 1)}>Older</Link>}
+      {hasMore && page < AUDIT_MAX_PAGE && <Link className="secondary-button" href={pageHref(page + 1)}>Older</Link>}
     </nav>}
+    {hasMore && page === AUDIT_MAX_PAGE && <p className="muted">The audit log is limited to the 100,000 most recent matching events.</p>}
   </section>;
 }

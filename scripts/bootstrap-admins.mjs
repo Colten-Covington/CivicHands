@@ -15,6 +15,7 @@
 // and redeploy. Temporary passwords must be replaced at the next sign-in, and
 // every change is recorded in the audit log. The password is never logged.
 import { neon } from "@neondatabase/serverless";
+import { z } from "zod";
 import { hashPassword, passwordProblem, verifyPassword } from "./lib/password.mjs";
 
 const log = (message) => console.log(`[bootstrap-admins] ${message}`);
@@ -34,6 +35,8 @@ if (emails.length === 0) {
   log("ADMIN_TEMP_PASSWORD is set but ADMIN_EMAILS is empty; nothing to do.");
   process.exit(0);
 }
+const emailSchema = z.string().trim().toLowerCase().pipe(z.email()).pipe(z.string().max(254));
+if (emails.some((email) => !emailSchema.safeParse(email).success)) fail("ADMIN_EMAILS contains an invalid email address.");
 const problem = passwordProblem(tempPassword);
 if (problem) fail(`ADMIN_TEMP_PASSWORD is not a valid password: ${problem}`);
 const url = process.env.DATABASE_URL?.trim();
@@ -55,11 +58,15 @@ async function apply(email, noActiveAdmin) {
         values (${email}, ${passwordHash}, 'Administrator', 'admin', true, ${passwordHash})
         on conflict (email) do nothing
         returning id
+      ), recorded as (
+        insert into bootstrap_password_history (user_id, password_hash)
+        select id, ${passwordHash} from created
+        returning user_id
       )
       insert into audit_events (actor_role, action, target_type, target_id, public_summary, private_details)
       select 'system', 'user.created', 'user', id, ${`An administrator account was created from ${configured}.`},
         jsonb_build_object('userId', id, 'via', 'ADMIN_TEMP_PASSWORD')
-      from created
+      from created join recorded on recorded.user_id = created.id
       returning target_id`;
     return log(created ? `${email}: created an administrator account with the temporary password.` : `${email}: an account was created concurrently; redeploy to apply the temporary password.`);
   }
@@ -67,7 +74,15 @@ async function apply(email, noActiveAdmin) {
   if (user.suspended_at) return log(`${email}: account is suspended; skipped.`);
   const promote = user.role !== "admin";
   if (promote && !noActiveAdmin) return log(`${email}: account is not an administrator, and the deployment already has one; skipped.`);
-  if (await verifyPassword(tempPassword, user.bootstrap_password_hash)) {
+  const appliedPasswords = await sql`select password_hash from bootstrap_password_history where user_id = ${user.id}`;
+  let alreadyApplied = false;
+  for (const { password_hash } of appliedPasswords) {
+    if (await verifyPassword(tempPassword, password_hash)) {
+      alreadyApplied = true;
+      break;
+    }
+  }
+  if (alreadyApplied) {
     return log(`${email}: this ADMIN_TEMP_PASSWORD was already applied; skipped. Change the value to issue a new temporary password.`);
   }
 
@@ -76,6 +91,7 @@ async function apply(email, noActiveAdmin) {
   await sql.transaction([
     sql`update users set password_hash = ${passwordHash}, bootstrap_password_hash = ${passwordHash}, must_change_password = true,
         failed_sign_ins = 0, locked_until = null, role = 'admin' where id = ${user.id}`,
+    sql`insert into bootstrap_password_history (user_id, password_hash) values (${user.id}, ${passwordHash})`,
     sql`delete from sessions where user_id = ${user.id}`,
     ...(promote
       ? [sql`insert into audit_events (actor_role, action, target_type, target_id, public_summary, private_details)
