@@ -10,8 +10,9 @@
     "lint": "eslint",
     "db:generate": "drizzle-kit generate",
     "db:push": "dotenv -e .env.local -- drizzle-kit push",
-    "db:migrate": "dotenv -e .env.local -- drizzle-kit migrate",
-    "db:migrate:deploy": "drizzle-kit migrate"
+    "db:migrate": "dotenv -e .env.local -- node scripts/migrate.mjs",
+    "db:migrate:deploy": "node scripts/migrate.mjs",
+    "db:migrate:baseline": "dotenv -e .env.local -- node scripts/migrate.mjs --baseline"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.2.0",
