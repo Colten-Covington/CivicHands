@@ -1,4 +1,5 @@
 "use server";
+import { randomUUID } from "node:crypto";
 import { and, count, eq, gt, ne } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -35,34 +36,68 @@ function refresh(needId?: string) {
 
 export async function createNeed(input: unknown): Promise<ActionResult & { id?: string }> {
   const viewer = await getViewer();
-  if (!viewer) return fail("Please sign in to add a report.");
   const parsed = reportSchema.safeParse(input);
   if (!parsed.success) return fail("Please check the report details.");
   const data = parsed.data;
+  if (!viewer && data.kind === "neighbor_help") return fail("Please sign in to request help at home.");
 
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const [{ value: recent }] = await getDb().select({ value: count() }).from(needs).where(and(eq(needs.reporterId, viewer.id), gt(needs.createdAt, since)));
-  if (recent >= MAX_REPORTS_PER_DAY) return fail("You've reached today's report limit. Please try again tomorrow.");
+  if (viewer) {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const [{ value: recent }] = await getDb().select({ value: count() }).from(needs).where(and(eq(needs.reporterId, viewer.id), gt(needs.createdAt, since)));
+    if (recent >= MAX_REPORTS_PER_DAY) return fail("You've reached today's report limit. Please try again tomorrow.");
+  }
 
   const isNeighbor = data.kind === "neighbor_help";
-  const [created] = await getDb().insert(needs).values({
+  const needId = randomUUID();
+  await getDb().batch([
+    getDb().insert(needs).values({
+    id: needId,
     ...data,
     location: isNeighbor ? APPROXIMATE_LOCATION : data.location,
     privateLocation: isNeighbor ? data.location : null,
-    reporterId: viewer.id,
+    reporterId: viewer?.id ?? null,
     detailsPrivate: isNeighbor,
     status: data.kind === "city_hazard" ? "referred" : "open",
-  }).returning({ id: needs.id });
+    reviewStatus: "pending",
+    }),
+    auditInsert(viewer, {
+      action: "need.created",
+      targetType: "need",
+      targetId: needId,
+      needId,
+      publicSummary: "A report was submitted for moderator review.",
+    }),
+  ]);
+  refresh(needId);
+  return { ...ok("Thanks. Your report will appear after a moderator reviews it."), id: needId };
+}
 
-  await auditInsert(viewer, {
-    action: "need.created",
-    targetType: "need",
-    targetId: created.id,
-    needId: created.id,
-    publicSummary: data.kind === "city_hazard" ? "Report created and referred to the city." : "Report created.",
-  });
-  refresh(created.id);
-  return { ...ok("It's on the map."), id: created.id };
+/** Reporters can revise wording requested by a moderator and resubmit it for review. */
+export async function resubmitNeedWording(needId: string, input: { title: string; description: string }): Promise<ActionResult> {
+  const viewer = await getViewer();
+  if (!viewer) return fail("Please sign in to update your report.");
+  if (!idSchema.safeParse(needId).success) return fail("That report wasn't found.");
+  const parsed = z.object({
+    title: z.string().trim().min(5).max(100),
+    description: z.string().trim().min(10).max(1000),
+  }).safeParse(input);
+  if (!parsed.success) return fail("Please check the revised title and description.");
+
+  const [need] = await getDb().select({ reporterId: needs.reporterId, reviewStatus: needs.reviewStatus }).from(needs).where(eq(needs.id, needId)).limit(1);
+  if (!need || need.reporterId !== viewer.id || need.reviewStatus !== "changes_requested") return fail("That report can't be revised.");
+
+  await getDb().batch([
+    getDb().update(needs).set({ ...parsed.data, reviewStatus: "pending", moderationFeedback: null, updatedAt: new Date() }).where(eq(needs.id, needId)),
+    auditInsert(viewer, {
+      action: "need.wording_resubmitted",
+      targetType: "need",
+      targetId: needId,
+      needId,
+      publicSummary: "A revised report was submitted for moderator review.",
+    }),
+  ]);
+  refresh(needId);
+  return ok("Your revised report is waiting for moderator review.");
 }
 
 export async function offerHelp(needId: string, message?: string): Promise<ActionResult> {

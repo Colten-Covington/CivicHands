@@ -31,6 +31,55 @@ function refreshAll() {
 
 const roleNames = { member: "community member", city_official: "city official", admin: "administrator" } as const;
 
+/** Reviews user-submitted wording before it can appear publicly. */
+export async function reviewNeed(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const viewer = await getViewer();
+  if (!isStaff(viewer)) return fail("Only city officials and administrators can review reports.");
+  const parsed = z.object({
+    needId: z.uuid(),
+    decision: z.enum(["approve", "request_changes", "reject"]),
+    feedback: z.string().trim().max(500).optional(),
+    revisedTitle: z.string().trim().min(5).max(100).optional(),
+    revisedDescription: z.string().trim().min(10).max(1000).optional(),
+  }).safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return fail("Please check the review details.");
+  const { needId, decision, feedback, revisedTitle, revisedDescription } = parsed.data;
+  if (decision !== "approve" && !feedback) return fail("Add a short moderator note.");
+
+  const [need] = await getDb().select({ reporterId: needs.reporterId, reviewStatus: needs.reviewStatus }).from(needs).where(eq(needs.id, needId)).limit(1);
+  if (!need || (need.reviewStatus !== "pending" && need.reviewStatus !== "changes_requested")) return fail("That report is no longer waiting for review.");
+  if (decision === "request_changes" && !need.reporterId) return fail("Anonymous reports must be edited by a moderator or declined.");
+
+  const reviewStatus = decision === "approve" ? "approved" : decision === "request_changes" ? "changes_requested" : "rejected";
+  const action = decision === "approve" ? "need.approved" : decision === "request_changes" ? "need.changes_requested" : "need.rejected";
+  const publicSummary = decision === "approve"
+    ? "A report was approved and published after review."
+    : decision === "request_changes"
+      ? "A moderator requested wording changes before publication."
+      : "A report was declined during moderation review.";
+  const changes: Partial<typeof needs.$inferInsert> = {
+    reviewStatus,
+    moderationFeedback: decision === "request_changes" ? feedback : null,
+    updatedAt: new Date(),
+  };
+  if (revisedTitle) changes.title = revisedTitle;
+  if (revisedDescription) changes.description = revisedDescription;
+
+  await getDb().batch([
+    getDb().update(needs).set(changes).where(eq(needs.id, needId)),
+    auditInsert(viewer, {
+      action,
+      targetType: "need",
+      targetId: needId,
+      needId,
+      publicSummary,
+      privateDetails: { feedback: feedback || null, wordingEdited: Boolean(revisedTitle || revisedDescription) },
+    }),
+  ]);
+  revalidatePath("/", "layout");
+  return ok(decision === "approve" ? "Report approved and published." : decision === "request_changes" ? "Wording changes requested." : "Report declined.");
+}
+
 /** City officials and administrators can move any report through its lifecycle with a public note. */
 export async function updateNeedStatus(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const viewer = await getViewer();
