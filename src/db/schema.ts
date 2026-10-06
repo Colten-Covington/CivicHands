@@ -136,3 +136,7 @@ export const auditEvents = pgTable("audit_events", {
 
 export type User = typeof users.$inferSelect;
 export type Need = typeof needs.$inferSelect;
+
+
+export type HelperCapability = typeof helperCapabilities.$inferSelect;
+export type JumpStartRequest = typeof jumpStartRequests.$inferSelect;
