@@ -64,7 +64,7 @@ function ReportSheet({pin,setPin,signedIn,demo,initialCategory,close}:{pin:{lati
   const [error,setError]=useState("");
   const [locationError,setLocationError]=useState("");
   const [locationBusy,setLocationBusy]=useState(false);
-  const [step,setStep]=useState(1);
+  const [step,setStep]=useState(initialCategory?2:1);
   const [category,setCategory]=useState(initialCategory??"neighborhood_cleanup");
   const selectedCategory=REPORT_CATEGORIES.find(item=>item.id===category)??REPORT_CATEGORIES[0];
   const jumpStart=category==="jump_start";
