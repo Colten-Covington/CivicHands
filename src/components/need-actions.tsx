@@ -37,6 +37,9 @@ export function NeedActions({ need, showDetailsLink = true }: { need: MapNeed; s
         <button className="action-button" disabled={pending} onClick={() => run(() => offerHelp(need.id, message))}>{pending ? "Sending…" : "Offer to help"}</button>
       </>;
       break;
+    case "capability_required":
+      body = <><p className="action-note">This request needs {need.requiredEquipment?.join(" or ") || "matching equipment"}. Only vetted helpers who have confirmed that equipment can offer.</p><Link className="action-button" href="/account#helper-equipment">Update equipment availability</Link></>;
+      break;
     case "pending":
       body = <><p className="action-note">Your offer is waiting for the requester&apos;s response.</p><button className="secondary-button" disabled={pending || !need.offerId} onClick={() => need.offerId && run(() => withdrawOffer(need.offerId!))}>Withdraw offer</button></>;
       break;
