@@ -10,6 +10,7 @@ export function NeedActions({ need, showDetailsLink = true }: { need: MapNeed; s
   const [pending, startTransition] = useTransition();
   const [result, setResult] = useState<ActionResult | null>(null);
   const [message, setMessage] = useState("");
+  const [jumpSafetyConfirmed, setJumpSafetyConfirmed] = useState(false);
   const details = `/needs/${need.id}`;
 
   function run(task: () => Promise<ActionResult>) {
@@ -34,7 +35,8 @@ export function NeedActions({ need, showDetailsLink = true }: { need: MapNeed; s
     case "offer":
       body = <>
         {need.kind === "neighbor_help" && <label className="offer-message">Message to the requester (optional, private)<textarea value={message} maxLength={500} onChange={(e) => setMessage(e.target.value)} placeholder="When you're available and what you can bring."/></label>}
-        <button className="action-button" disabled={pending} onClick={() => run(() => offerHelp(need.id, message))}>{pending ? "Sending…" : "Offer to help"}</button>
+        {need.requestType === "jump_start" && <label className="checkbox safety-confirm"><input type="checkbox" checked={jumpSafetyConfirmed} onChange={(e) => setJumpSafetyConfirmed(e.target.checked)}/>I will help only if the vehicle is fully off the roadway, and I will follow the vehicle maker’s guidance.</label>}
+        <button className="action-button" disabled={pending || (need.requestType === "jump_start" && !jumpSafetyConfirmed)} onClick={() => run(() => offerHelp(need.id, message, jumpSafetyConfirmed))}>{pending ? "Sending…" : "Offer to help"}</button>
       </>;
       break;
     case "capability_required":
