@@ -5,7 +5,7 @@ import type { Viewer } from "@/lib/auth";
 
 export type AuditInput = {
   action: string;
-  targetType: "need" | "user" | "helper_application" | "help_offer";
+  targetType: "need" | "user" | "helper_application" | "help_offer" | "helper_capability";
   targetId?: string | null;
   needId?: string | null;
   publicSummary: string;
