@@ -36,7 +36,7 @@ If it reports that a type or table **already exists** (codes `42710`/`42P07`), t
 | Who | Can do |
 | --- | --- |
 | Visitor | Browse the map, submit a public cleanup or city-hazard report for review, read each published report's history, read the transparency log |
-| Member (signed in) | Change their password, submit reports for review (10 per day), revise wording when requested, claim approved community cleanup, mark claimed work complete, apply to become a vetted helper, accept or decline offers on their own neighbor requests |
+| Member (signed in) | Change their password, submit reports for review (10 per day), revise wording when requested, claim approved community cleanup, mark claimed work complete, apply to become a vetted helper, accept or decline offers on their own neighbor requests, send private lost/found pet sightings |
 | Vetted helper | Everything a member can do, plus offer help on neighbor support requests |
 | Moderator | Review and approve reports, request respectful wording changes, revise or decline anonymous reports, change status, post public updates, hide or restore reports |
 | City official | Everything a moderator can do |
@@ -46,7 +46,9 @@ If it reports that a type or table **already exists** (codes `42710`/`42P07`), t
 - Moderators can ask signed-in reporters to revise wording before publication. Anonymous reports cannot be returned to an unauthenticated author, so staff must rewrite and approve them or decline them.
 - **Community cleanup:** any signed-in member can claim an open report; they can release it or mark it complete.
 - **City referral:** volunteers can't claim these; city officials post status changes and public updates.
-- **Neighbor support:** only vetted helpers can offer; the requester picks a helper, and only that helper sees the exact location. Jump-start requests additionally require matching helper-reported equipment and confirmations that the vehicle is in a safe off-road location, has a standard 12V system, and has no visible hazard. This is a community match, not roadside or mechanical service.
+- **Report locations:** reporters can request device GPS, tap the map, enter an address/landmark, describe an approximate area and private directions separately, or submit without a pin. A missing pin never blocks a report.
+- **Neighbor support:** only vetted helpers can offer on ordinary requests; the requester picks a helper, and only that helper sees exact directions and private notes. Signed-in members may send private lost/found pet sightings; exact pet holding locations stay hidden. Jump-start requests require matching helper-reported equipment and confirmation that the vehicle is safely off-road, a standard 12V system, and hazard-free. This is a community match, not roadside or mechanical service.
+- **Professional/emergency handoffs:** the tow category opens official Texas towing guidance; it does not dispatch a provider. Missing-person reports and searches are not hosted; users are directed to law enforcement, 911 for immediate danger, and Texas DPS resources.
 
 ## Privacy and the audit trail
 

@@ -52,8 +52,10 @@ export const needs = pgTable("needs", {
   location: text("location").notNull(),
   /** Exact address or directions for neighbor support. Only the requester and accepted helper may see it. */
   privateLocation: text("private_location"),
-  latitude: doublePrecision("latitude").notNull(),
-  longitude: doublePrecision("longitude").notNull(),
+  /** Private directions or vehicle identifying details, shared only with the requester and accepted helper. */
+  privateLocationDetails: text("private_location_details"),
+  latitude: doublePrecision("latitude"),
+  longitude: doublePrecision("longitude"),
   city: text("city").notNull().default("Texas City"),
   reporterName: text("reporter_name").notNull().default("A neighbor"),
   reporterId: uuid("reporter_id").references(() => users.id, { onDelete: "set null" }),

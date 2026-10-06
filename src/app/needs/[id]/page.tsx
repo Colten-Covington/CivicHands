@@ -36,7 +36,7 @@ export default async function NeedPage({ params }: { params: Promise<{ id: strin
       <div className="pill-row"><span className="status-pill">{kindLabels[need.kind]}</span><span className="status-pill">{statusLabels[need.status]}</span>{row.hidden && <span className="status-pill warn">Hidden from public map</span>}</div>
       <h1 className="page-title">{need.title}</h1>
       <p className="lede small">{need.description}</p>
-      <p className="detail-location">{need.approximate ? <EyeOff size={17}/> : <MapPin size={17}/>}{need.privateLocation ?? need.location}, {need.city}</p>
+      <p className="detail-location">{need.approximate ? <EyeOff size={17}/> : <MapPin size={17}/>}{need.privateLocation ?? need.location}, {need.city}</p>{need.privateLocationDetails && <p className="notice">{need.privateLocationDetails}</p>}
       <p className="muted">{need.category} · Reported {formatWhen(need.createdAt)}</p>
       {need.requestType === "jump_start" && <section className="notice"><strong>Jump-start request</strong><p>Requested equipment: {need.requiredEquipment?.join(" or ") || "compatible jump-start equipment"}.</p>{need.vehicleType && <p>Vehicle: {need.vehicleType === "passenger_car" ? "passenger car" : "light truck"}.</p>}<p>Only help if the vehicle remains safely away from traffic. Follow the vehicle maker’s instructions; do not connect to a high-voltage system.</p></section>}
       {reporter && row.reviewStatus === "changes_requested" && <section className="notice"><strong>A moderator requested wording changes before publication.</strong>{row.moderationFeedback && <p>{row.moderationFeedback}</p>}<p>Open Your account to revise the title and description.</p></section>}
