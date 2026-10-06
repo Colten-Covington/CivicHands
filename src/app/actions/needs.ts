@@ -141,7 +141,7 @@ export async function resubmitNeedWording(_prev: ActionState, formData: FormData
   return ok("Your revised report is waiting for moderator review.");
 }
 
-export async function offerHelp(needId: string, message?: string): Promise<ActionResult> {
+export async function offerHelp(needId: string, message?: string, jumpSafetyConfirmation = false): Promise<ActionResult> {
   const viewer = await getViewer();
   if (!viewer) return fail("Please sign in to offer help.");
   if (!idSchema.safeParse(needId).success) return fail("That report wasn't found.");
@@ -154,6 +154,7 @@ export async function offerHelp(needId: string, message?: string): Promise<Actio
   if (need.reporterId === viewer.id) return fail("You can't offer help on your own report.");
   if (need.status !== "open") return fail("Someone is already helping with this one.");
   if (need.kind === "neighbor_help" && viewer.helperStatus !== "approved") return fail("Neighbor support is limited to vetted helpers. Apply from your account page.");
+  if (need.requestType === "jump_start" && !jumpSafetyConfirmation) return fail("Confirm that you will help only from a safe off-road location and follow the vehicle maker’s guidance.");
   if (need.requestType === "jump_start" && !await helperHasJumpStartGear(viewer.id, needId)) {
     return fail("Your equipment profile does not match this request. Confirm your cables or jump pack on your account page.");
   }
