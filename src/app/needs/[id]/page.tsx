@@ -11,8 +11,8 @@ import { getDb } from "@/db";
 import { needs } from "@/db/schema";
 import { databaseConfigured, getViewer, isStaff } from "@/lib/auth";
 import { formatWhen } from "@/lib/format";
-import { kindLabels, statusLabels, toMapNeed } from "@/lib/needs";
-import { loadNeedTimeline, loadViewerOffers } from "@/lib/queries";
+import { kindLabels, statusLabels } from "@/lib/needs";
+import { loadMapNeed, loadNeedTimeline, loadViewerOffers } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +26,7 @@ export default async function NeedPage({ params }: { params: Promise<{ id: strin
   if (!row || (row.hidden && !staff) || (row.reviewStatus !== "approved" && !staff && !reporter)) notFound();
 
   const offers = await loadViewerOffers(viewer, [row.id]);
-  const need = toMapNeed(row, viewer, offers.get(row.id) ?? null);
+  const need = await loadMapNeed(row, viewer, offers.get(row.id) ?? null);
   const timeline = await loadNeedTimeline(row.id);
 
   return <main>
@@ -38,6 +38,7 @@ export default async function NeedPage({ params }: { params: Promise<{ id: strin
       <p className="lede small">{need.description}</p>
       <p className="detail-location">{need.approximate ? <EyeOff size={17}/> : <MapPin size={17}/>}{need.privateLocation ?? need.location}, {need.city}</p>
       <p className="muted">{need.category} · Reported {formatWhen(need.createdAt)}</p>
+      {need.requestType === "jump_start" && <section className="notice"><strong>Jump-start request</strong><p>Requested equipment: {need.requiredEquipment?.join(" or ") || "compatible jump-start equipment"}.</p>{need.vehicleType && <p>Vehicle: {need.vehicleType === "passenger_car" ? "passenger car" : "light truck"}.</p>}<p>Only help if the vehicle remains safely away from traffic. Follow the vehicle maker’s instructions; do not connect to a high-voltage system.</p></section>}
       {reporter && row.reviewStatus === "changes_requested" && <section className="notice"><strong>A moderator requested wording changes before publication.</strong>{row.moderationFeedback && <p>{row.moderationFeedback}</p>}<p>Open Your account to revise the title and description.</p></section>}
       {staff && row.reviewStatus !== "approved" && <p className="notice">Review status: {row.reviewStatus.replaceAll("_", " ")}. This report is not visible publicly.</p>}
       {need.kind === "city_hazard" && <p className="notice">This is a job for trained city crews. Please stay clear and don&apos;t attempt it yourself. Updates from city officials appear below.</p>}

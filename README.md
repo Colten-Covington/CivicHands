@@ -46,7 +46,7 @@ If it reports that a type or table **already exists** (codes `42710`/`42P07`), t
 - Moderators can ask signed-in reporters to revise wording before publication. Anonymous reports cannot be returned to an unauthenticated author, so staff must rewrite and approve them or decline them.
 - **Community cleanup:** any signed-in member can claim an open report; they can release it or mark it complete.
 - **City referral:** volunteers can't claim these; city officials post status changes and public updates.
-- **Neighbor support:** only vetted helpers can offer; the requester picks a helper, and only that helper sees the exact location.
+- **Neighbor support:** only vetted helpers can offer; the requester picks a helper, and only that helper sees the exact location. Jump-start requests additionally require matching helper-reported equipment and confirmations that the vehicle is in a safe off-road location, has a standard 12V system, and has no visible hazard. This is a community match, not roadside or mechanical service.
 
 ## Privacy and the audit trail
 

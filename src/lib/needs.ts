@@ -1,4 +1,4 @@
-import type { Need } from "@/db/schema";
+import type { HelperCapability, JumpStartRequest, Need } from "@/db/schema";
 import type { Viewer } from "@/lib/auth";
 
 export const statusLabels: Record<string, string> = {
@@ -22,6 +22,7 @@ export type NeedAction =
   | "sign_in"
   | "offer"
   | "apply_helper"
+  | "capability_required"
   | "pending"
   | "assigned"
   | "reporter"
@@ -34,6 +35,9 @@ export type MapNeed = {
   description: string;
   category: string;
   kind: string;
+  requestType: string;
+  requiredEquipment: string[];
+  vehicleType: string | null;
   location: string;
   privateLocation: string | null;
   city: string;
@@ -55,14 +59,29 @@ function generalize(value: number) {
 
 /**
  * Converts a stored report into the shape sent to the browser. Exact neighbor-support
- * locations are only included for the requester and the accepted helper.
+ * locations and jump-start vehicle details are only included for the requester and accepted helper.
  */
-export function toMapNeed(need: Need, viewer: Viewer | null, offer: ViewerOffer | null): MapNeed {
+export function toMapNeed(
+  need: Need,
+  viewer: Viewer | null,
+  offer: ViewerOffer | null,
+  jumpRequest: JumpStartRequest | null = null,
+  capability: HelperCapability | null = null,
+): MapNeed {
   const isReporter = Boolean(viewer && need.reporterId === viewer.id);
-  // Neighbor-support details require the helper to still be vetted.
   const isAssigned = (offer?.status === "accepted" || offer?.status === "completed") && (need.kind !== "neighbor_help" || viewer?.helperStatus === "approved");
   const sensitive = need.kind === "neighbor_help" || need.detailsPrivate;
   const exact = !sensitive || isReporter || isAssigned;
+  const requiredEquipment = jumpRequest
+    ? [
+        ...(jumpRequest.needsCables ? ["Jumper cables"] : []),
+        ...(jumpRequest.needsJumpPack ? ["Portable jump pack"] : []),
+      ]
+    : [];
+  const hasMatchingEquipment = Boolean(capability && jumpRequest && (
+    (jumpRequest.needsCables && capability.jumperCables) ||
+    (jumpRequest.needsJumpPack && capability.jumpPack)
+  ));
 
   let action: NeedAction;
   if (need.kind === "city_hazard") action = "follow";
@@ -72,6 +91,7 @@ export function toMapNeed(need: Need, viewer: Viewer | null, offer: ViewerOffer 
   else if (offer?.status === "pending") action = "pending";
   else if (need.status !== "open") action = "unavailable";
   else if (need.kind === "neighbor_help" && viewer.helperStatus !== "approved") action = "apply_helper";
+  else if (need.requestType === "jump_start" && !hasMatchingEquipment) action = "capability_required";
   else action = "offer";
 
   return {
@@ -80,6 +100,9 @@ export function toMapNeed(need: Need, viewer: Viewer | null, offer: ViewerOffer 
     description: need.description,
     category: need.category,
     kind: need.kind,
+    requestType: need.requestType,
+    requiredEquipment,
+    vehicleType: exact ? jumpRequest?.vehicleType ?? null : null,
     location: exact ? need.location : APPROXIMATE_LOCATION,
     privateLocation: exact ? need.privateLocation : null,
     city: need.city,
@@ -95,6 +118,21 @@ export function toMapNeed(need: Need, viewer: Viewer | null, offer: ViewerOffer 
 
 /** Fields safe for anyone, used by the public JSON API. */
 export function toPublicNeed(need: Need) {
-  const { id, title, description, category, kind, location, city, status, createdAt, latitude, longitude, approximate } = toMapNeed(need, null, null);
-  return { id, title, description, category, kind, location, city, status, createdAt, latitude, longitude, approximate };
+  const mapNeed = toMapNeed(need, null, null);
+  return {
+    id: mapNeed.id,
+    title: mapNeed.title,
+    description: mapNeed.description,
+    category: mapNeed.category,
+    kind: mapNeed.kind,
+    requestType: mapNeed.requestType,
+    requiredEquipment: mapNeed.requiredEquipment,
+    location: mapNeed.location,
+    city: mapNeed.city,
+    status: mapNeed.status,
+    createdAt: mapNeed.createdAt,
+    latitude: mapNeed.latitude,
+    longitude: mapNeed.longitude,
+    approximate: mapNeed.approximate,
+  };
 }
