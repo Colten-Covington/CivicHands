@@ -1,5 +1,6 @@
 import type { HelperCapability, JumpStartRequest, Need } from "@/db/schema";
 import type { Viewer } from "@/lib/auth";
+import { isPetReportCategory } from "@/lib/report-categories";
 
 export const statusLabels: Record<string, string> = {
   open: "Open",
@@ -40,11 +41,12 @@ export type MapNeed = {
   vehicleType: string | null;
   location: string;
   privateLocation: string | null;
+  privateLocationDetails?: string | null;
   city: string;
   status: string;
   createdAt: string;
-  latitude: number;
-  longitude: number;
+  latitude: number | null;
+  longitude: number | null;
   approximate: boolean;
   action: NeedAction;
   offerId: string | null;
@@ -53,8 +55,8 @@ export type MapNeed = {
 export type ViewerOffer = { id: string; needId: string; status: string };
 
 /** Rounds to a ~1 km grid so a neighbor's home can't be located from the public map. */
-function generalize(value: number) {
-  return Math.round(value * 100) / 100;
+function generalize(value: number | null) {
+  return value === null ? null : Math.round(value * 100) / 100;
 }
 
 /**
@@ -69,9 +71,10 @@ export function toMapNeed(
   capability: HelperCapability | null = null,
 ): MapNeed {
   const isReporter = Boolean(viewer && need.reporterId === viewer.id);
-  const isAssigned = (offer?.status === "accepted" || offer?.status === "completed") && (need.kind !== "neighbor_help" || viewer?.helperStatus === "approved");
+  const petReport = isPetReportCategory(need.category);
+  const isAssigned = (offer?.status === "accepted" || offer?.status === "completed") && (need.kind !== "neighbor_help" || petReport || viewer?.helperStatus === "approved");
   const sensitive = need.kind === "neighbor_help" || need.detailsPrivate;
-  const exact = !sensitive || isReporter || isAssigned;
+  const exact = !sensitive || isReporter || (isAssigned && !petReport);
   const requiredEquipment = jumpRequest
     ? [
         ...(jumpRequest.needsCables ? ["Jumper cables"] : []),
@@ -90,7 +93,7 @@ export function toMapNeed(
   else if (offer?.status === "accepted") action = "assigned";
   else if (offer?.status === "pending") action = "pending";
   else if (need.status !== "open") action = "unavailable";
-  else if (need.kind === "neighbor_help" && viewer.helperStatus !== "approved") action = "apply_helper";
+  else if (need.kind === "neighbor_help" && viewer.helperStatus !== "approved" && !petReport) action = "apply_helper";
   else if (need.requestType === "jump_start" && !hasMatchingEquipment) action = "capability_required";
   else action = "offer";
 
@@ -103,8 +106,9 @@ export function toMapNeed(
     requestType: need.requestType,
     requiredEquipment,
     vehicleType: exact ? jumpRequest?.vehicleType ?? null : null,
-    location: exact ? need.location : APPROXIMATE_LOCATION,
+    location: exact ? need.privateLocation ?? need.location : need.location || APPROXIMATE_LOCATION,
     privateLocation: exact ? need.privateLocation : null,
+    privateLocationDetails: exact ? need.privateLocationDetails : null,
     city: need.city,
     status: need.status,
     createdAt: need.createdAt.toISOString(),

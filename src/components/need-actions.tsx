@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { completeNeed, offerHelp, withdrawOffer } from "@/app/actions/needs";
 import type { ActionResult } from "@/lib/action-state";
 import type { MapNeed } from "@/lib/needs";
+import { isPetReportCategory } from "@/lib/report-categories";
 
 /** The primary call to action for a report, based on who is viewing it. */
 export function NeedActions({ need, showDetailsLink = true }: { need: MapNeed; showDetailsLink?: boolean }) {
@@ -12,6 +13,7 @@ export function NeedActions({ need, showDetailsLink = true }: { need: MapNeed; s
   const [message, setMessage] = useState("");
   const [jumpSafetyConfirmed, setJumpSafetyConfirmed] = useState(false);
   const details = `/needs/${need.id}`;
+  const petReport = isPetReportCategory(need.category);
 
   function run(task: () => Promise<ActionResult>) {
     setResult(null);
@@ -34,9 +36,9 @@ export function NeedActions({ need, showDetailsLink = true }: { need: MapNeed; s
       break;
     case "offer":
       body = <>
-        {need.kind === "neighbor_help" && <label className="offer-message">Message to the requester (optional, private)<textarea value={message} maxLength={500} onChange={(e) => setMessage(e.target.value)} placeholder="When you're available and what you can bring."/></label>}
+        {need.kind === "neighbor_help" && <label className="offer-message">{petReport ? "Private sighting or reunification note (optional)" : "Message to the requester (optional, private)"}<textarea value={message} maxLength={500} onChange={(e) => setMessage(e.target.value)} placeholder={petReport ? "Share an approximate sighting or safe way to coordinate. Keep the exact holding location and phone numbers private." : "When you're available and what you can bring."}/></label>}{petReport && <p className="action-note">Only share general sightings here. The requester can accept or decline your note.</p>}
         {need.requestType === "jump_start" && <label className="checkbox safety-confirm"><input type="checkbox" checked={jumpSafetyConfirmed} onChange={(e) => setJumpSafetyConfirmed(e.target.checked)}/>I will help only if the vehicle is fully off the roadway, and I will follow the vehicle maker’s guidance.</label>}
-        <button className="action-button" disabled={pending || (need.requestType === "jump_start" && !jumpSafetyConfirmed)} onClick={() => run(() => offerHelp(need.id, message, jumpSafetyConfirmed))}>{pending ? "Sending…" : "Offer to help"}</button>
+        <button className="action-button" disabled={pending || (need.requestType === "jump_start" && !jumpSafetyConfirmed)} onClick={() => run(() => offerHelp(need.id, message, jumpSafetyConfirmed))}>{pending ? "Sending…" : petReport ? "Send private note" : "Offer to help"}</button>
       </>;
       break;
     case "capability_required":

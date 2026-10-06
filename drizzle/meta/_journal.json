@@ -43,6 +43,13 @@
       "when": 1791309600000,
       "tag": "0005_jump_start_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791317403067,
+      "tag": "0006_flexible_report_locations",
+      "breakpoints": true
     }
   ]
 }
