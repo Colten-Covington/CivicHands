@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { and, count, desc, eq, inArray } from "drizzle-orm";
 import { changePassword } from "@/app/actions/auth";
-import { applyAsHelper, resubmitNeedWording } from "@/app/actions/needs";
+import { applyAsHelper, resubmitNeedWording, updateHelperCapabilities } from "@/app/actions/needs";
 import { ActionForm } from "@/components/action-form";
 import { OfferResponse } from "@/components/offer-response";
 import { SiteHeader } from "@/components/site-header";
 import { getDb } from "@/db";
-import { helperApplications, helpOffers, needs, users } from "@/db/schema";
+import { helperApplications, helperCapabilities, helpOffers, needs, users } from "@/db/schema";
 import { isStaff, MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH, requireViewer } from "@/lib/auth";
 import { formatWhen } from "@/lib/format";
 import { kindLabels, statusLabels } from "@/lib/needs";
@@ -26,10 +26,11 @@ const helperCopy = {
 export default async function AccountPage() {
   const viewer = await requireViewer("/account");
   const db = getDb();
-  const [myReports, myOffers, [lastApplication]] = await Promise.all([
+  const [myReports, myOffers, [lastApplication], [myCapability]] = await Promise.all([
     db.select().from(needs).where(eq(needs.reporterId, viewer.id)).orderBy(desc(needs.createdAt)).limit(100),
     db.select({ offer: helpOffers, need: { id: needs.id, title: needs.title, status: needs.status, kind: needs.kind, hidden: needs.hidden } }).from(helpOffers).innerJoin(needs, eq(needs.id, helpOffers.needId)).where(eq(helpOffers.helperId, viewer.id)).orderBy(desc(helpOffers.createdAt)).limit(100),
     db.select({ status: helperApplications.status, createdAt: helperApplications.createdAt }).from(helperApplications).where(eq(helperApplications.userId, viewer.id)).orderBy(desc(helperApplications.createdAt)).limit(1),
+    db.select().from(helperCapabilities).where(eq(helperCapabilities.userId, viewer.id)).limit(1),
   ]);
 
   const reportIds = myReports.map((need) => need.id);
@@ -40,6 +41,10 @@ export default async function AccountPage() {
   const history = helperIds.length
     ? await db.select({ helperId: helpOffers.helperId, completed: count() }).from(helpOffers).where(and(inArray(helpOffers.helperId, helperIds), eq(helpOffers.status, "completed"))).groupBy(helpOffers.helperId)
     : [];
+  const [helperCapabilityRows] = await Promise.all([
+    helperIds.length ? db.select().from(helperCapabilities).where(inArray(helperCapabilities.userId, helperIds)) : Promise.resolve([]),
+  ]);
+  const capabilitiesByHelper = new Map(helperCapabilityRows.map((row) => [row.userId, row]));
   const completedBy = new Map(history.map((row) => [row.helperId, row.completed]));
 
   return <main>
@@ -61,6 +66,15 @@ export default async function AccountPage() {
           <p className="muted">Your application is visible only to administrators. The public audit log records only that an application was submitted and decided.</p>
         </ActionForm>}
       </section>
+      {viewer.helperStatus === "approved" && <section className="panel" id="helper-equipment">
+        <h2>Equipment you can bring</h2>
+        <p className="muted">Only list equipment you currently have and are willing to bring. You can update this at any time; availability is not a professional certification.</p>
+        {myCapability && <p className="muted">Last confirmed {formatWhen(myCapability.confirmedAt)}.</p>}
+        <ActionForm action={updateHelperCapabilities} submitLabel="Save and confirm" pendingLabel="Saving…">
+          <label className="checkbox"><input type="checkbox" name="jumperCables" defaultChecked={myCapability?.jumperCables ?? false}/>I have jumper cables and can bring them</label>
+          <label className="checkbox"><input type="checkbox" name="jumpPack" defaultChecked={myCapability?.jumpPack ?? false}/>I have a portable jump pack and can bring it</label>
+        </ActionForm>
+      </section>}
 
       <section className="panel" id="password">
         <h2>Password</h2>
@@ -93,12 +107,12 @@ export default async function AccountPage() {
                 <label>Revised description<textarea name="description" required minLength={10} maxLength={1000} defaultValue={need.description}/></label>
               </ActionForm>
             </details>}
-            {offers.map(({ offer, helperName, helperSince, helperStatus }) => <div className="offer-card" key={offer.id}>
+            {offers.map(({ offer, helperName, helperSince, helperStatus }) => { const capability = capabilitiesByHelper.get(offer.helperId); return <div className="offer-card" key={offer.id}>
               <div><strong>{helperName}</strong>{helperStatus === "approved" && <span className="status-pill verified">Vetted helper</span>}</div>
               <small className="muted">Member since {formatWhen(helperSince)} · {completedBy.get(offer.helperId) ?? 0} completed {completedBy.get(offer.helperId) === 1 ? "task" : "tasks"}</small>
-              {offer.message && <p>“{offer.message}”</p>}
+              {need.requestType === "jump_start" && capability && <small className="muted">Equipment confirmed: {[capability.jumperCables ? "Jumper cables" : null, capability.jumpPack ? "Portable jump pack" : null].filter(Boolean).join(" · ") || "No jump-start equipment listed"}</small>}{offer.message && <p>“{offer.message}”</p>}
               {offer.status === "pending" && need.status === "open" ? <OfferResponse offerId={offer.id}/> : <small className="muted">Offer {offer.status}</small>}
-            </div>)}
+            </div>})}
           </li>;
         })}</ul>
       </section>
