@@ -1,6 +1,8 @@
 import { boolean, doublePrecision, index, integer, jsonb, pgEnum, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 
 export const needStatus = pgEnum("need_status", ["open", "claimed", "completed", "referred", "closed"]);
+export const needRequestType = pgEnum("need_request_type", ["general", "jump_start"]);
+export const jumpVehicleType = pgEnum("jump_vehicle_type", ["passenger_car", "light_truck"]);
 export const needKind = pgEnum("need_kind", ["public_cleanup", "city_hazard", "neighbor_help"]);
 export const needReviewStatus = pgEnum("need_review_status", ["pending", "approved", "changes_requested", "rejected"]);
 export const userRole = pgEnum("user_role", ["member", "moderator", "city_official", "admin"]);
@@ -46,6 +48,7 @@ export const needs = pgTable("needs", {
   description: text("description").notNull(),
   kind: needKind("kind").notNull(),
   category: text("category").notNull(),
+  requestType: needRequestType("request_type").notNull().default("general"),
   location: text("location").notNull(),
   /** Exact address or directions for neighbor support. Only the requester and accepted helper may see it. */
   privateLocation: text("private_location"),
@@ -63,6 +66,25 @@ export const needs = pgTable("needs", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   completedAt: timestamp("completed_at", { withTimezone: true }),
 }, (t) => [index("needs_reporter_idx").on(t.reporterId)]);
+
+/** Helper capability claims are private and re-confirmed whenever a helper updates them. */
+export const helperCapabilities = pgTable("helper_capabilities", {
+  userId: uuid("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  jumperCables: boolean("jumper_cables").notNull().default(false),
+  jumpPack: boolean("jump_pack").notNull().default(false),
+  confirmedAt: timestamp("confirmed_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+/** Vehicle and equipment requirements are private to the requester and accepted helper. */
+export const jumpStartRequests = pgTable("jump_start_requests", {
+  needId: uuid("need_id").primaryKey().references(() => needs.id, { onDelete: "cascade" }),
+  needsCables: boolean("needs_cables").notNull().default(false),
+  needsJumpPack: boolean("needs_jump_pack").notNull().default(false),
+  vehicleType: jumpVehicleType("vehicle_type").notNull(),
+  safeLocationConfirmed: boolean("safe_location_confirmed").notNull().default(false),
+  standard12vConfirmed: boolean("standard_12v_confirmed").notNull().default(false),
+  hazardFreeConfirmed: boolean("hazard_free_confirmed").notNull().default(false),
+});
 
 /** Applications are private between the applicant and administrators. */
 export const helperApplications = pgTable("helper_applications", {
