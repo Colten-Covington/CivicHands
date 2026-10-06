@@ -15,6 +15,8 @@ CivicHands should recognize dependable helpers without turning service into a ga
 - Never encourage a volunteer to enter an active roadway or handle utilities, hazardous materials, large trees, weapons, or suspected crime evidence.
 - Hide exact residential addresses until the requester consents to a specific helper.
 - Treat rides, in-home help, minors, and vulnerable adults as later controlled programs rather than open marketplace tasks.
+- Jump-start requests may only match vetted helpers who self-confirm compatible equipment; require a safe off-road location, a standard 12V vehicle, and no visible hazard. Never match a vehicle exposed to traffic, a hybrid/EV, or a vehicle with smoke, leakage, damage, fuel odor, or another hazard.
+- Separate self-reported equipment from professional credentials. Recheck capability before an offer is accepted; only the requester and accepted helper can see private vehicle details.
 - Make completion reversible and reviewable; a photo alone does not prove consent or quality.
 - Preserve an audit trail of status changes and referrals.
 
