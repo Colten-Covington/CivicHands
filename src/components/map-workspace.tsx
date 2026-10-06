@@ -1,7 +1,7 @@
 "use client";
 import "maplibre-gl/dist/maplibre-gl.css";
 import Link from "next/link";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import Map, { Marker, NavigationControl, type MapMouseEvent } from "react-map-gl/maplibre";
 import { Building2, CheckCircle2, Crosshair, EyeOff, HeartHandshake, ListFilter, MapPin, Plus, Search, ShieldAlert, Sparkles, X } from "lucide-react";
 import { createNeed } from "@/app/actions/needs";
@@ -22,7 +22,26 @@ const streetStyle = rasterStyle("https://tile.openstreetmap.org/{z}/{x}/{y}.png"
 const satelliteStyle = rasterStyle("https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}", "Imagery courtesy U.S. Geological Survey", 16);
 
 export function MapWorkspace({initialNeeds,signedIn,demo}:{initialNeeds:MapNeed[];signedIn:boolean;demo:boolean}){
-  const [filter,setFilter]=useState("all"); const [selectedId,setSelectedId]=useState<string|null>(initialNeeds[0]?.id??null); const [reporting,setReporting]=useState(false); const [pin,setPin]=useState<{latitude:number;longitude:number}|null>(null); const [query,setQuery]=useState("");
+  const [filter,setFilter]=useState("all"); const [selectedId,setSelectedId]=useState<string|null>(initialNeeds[0]?.id??null); const [reporting,setReporting]=useState(false); const [pin,setPin]=useState<{latitude:number;longitude:number}|null>(null); const [resumeCategory,setResumeCategory]=useState<string|null>(null); const [query,setQuery]=useState("");
+  useEffect(()=>{
+    try{
+      if(sessionStorage.getItem("civichands-report-resume")!=="1")return;
+      sessionStorage.removeItem("civichands-report-resume");
+      const savedPin=sessionStorage.getItem("civichands-report-pin");
+      const savedCategory=sessionStorage.getItem("civichands-report-category");
+      sessionStorage.removeItem("civichands-report-pin");
+      sessionStorage.removeItem("civichands-report-category");
+      if(savedPin){
+        const parsed=JSON.parse(savedPin) as {latitude?:unknown;longitude?:unknown};
+        const latitude=Number(parsed.latitude),longitude=Number(parsed.longitude);
+        if(Number.isFinite(latitude)&&latitude>=-90&&latitude<=90&&Number.isFinite(longitude)&&longitude>=-180&&longitude<=180)setPin({latitude,longitude});
+      }
+      if(savedCategory&&REPORT_CATEGORIES.some(item=>item.id===savedCategory))setResumeCategory(savedCategory);
+      setReporting(true);
+    }catch{
+      setReporting(true);
+    }
+  },[]);
   const [view,setView]=useState<MapView>("streets"); const [mapError,setMapError]=useState(false);
   const [camera,setCamera]=useState({longitude:-94.9162,latitude:29.3958,zoom:13.2});
   function changeView(next:MapView){setMapError(false);setView(next)}
@@ -36,17 +55,17 @@ export function MapWorkspace({initialNeeds,signedIn,demo}:{initialNeeds:MapNeed[
       <aside className="need-list"><label className="search"><Search size={18}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search needs or streets"/></label><div className="filter-row"><ListFilter size={16}/>{[["all","All"],["public_cleanup","Community"],["city_hazard","City"],["neighbor_help","Neighbor"]].map(([value,label])=><button key={value} className={filter===value?"active":""} onClick={()=>setFilter(value)}>{label}</button>)}</div><div className="result-count">{shown.length} nearby {shown.length===1?"need":"needs"}</div><div className="results">{shown.length===0&&<p className="empty-note">No approved reports yet. Choose “Report a need” to submit one. A map pin is optional.</p>}{shown.map(need=>{const d=detail[need.kind as keyof typeof detail];const Icon=d.icon;return <button className={`result-card ${selectedId===need.id?"selected":""}`} key={need.id} onClick={()=>setSelectedId(need.id)}><div><span className={`status ${d.className}`}><Icon size={13}/>{d.label}</span><small>{statusLabels[need.status]??need.status} · {formatWhen(need.createdAt)}{need.requestType==="jump_start"?" · Jump start":""}</small></div><strong>{need.title}</strong><p><MapPin size={14}/>{need.location}</p></button>})}</div></aside>
       <div className="map-shell"><Map key={view} initialViewState={{...camera,zoom:view==="3d"?Math.max(camera.zoom,14):camera.zoom,pitch:view==="3d"?60:0,bearing:view==="3d"?-20:0}} onMoveEnd={event=>{const {longitude,latitude,zoom}=event.viewState;setCamera({longitude,latitude,zoom})}} mapStyle={view==="3d"?"https://tiles.openfreemap.org/styles/bright":view==="satellite"?satelliteStyle:streetStyle} onClick={mapClick} onError={()=>setMapError(true)} onLoad={event=>{if(view==="3d"&&event.target.getSource("openmaptiles"))event.target.addLayer({id:"buildings-3d",type:"fill-extrusion",source:"openmaptiles","source-layer":"building",minzoom:14,paint:{"fill-extrusion-color":"#c7b9a5","fill-extrusion-height":["coalesce",["get","render_height"],["get","height"],10],"fill-extrusion-base":["coalesce",["get","render_min_height"],["get","min_height"],0],"fill-extrusion-opacity":0.8}})}} cursor="crosshair"><NavigationControl position="bottom-right" showCompass={view==="3d"}/>{shown.filter(need=>need.latitude!==null&&need.longitude!==null).map(need=><Marker key={need.id} longitude={need.longitude!} latitude={need.latitude!} anchor="bottom"><button aria-label={`View ${need.title}`} className={`map-pin ${need.kind} ${selectedId===need.id?"active":""} ${need.approximate?"approximate":""}`} onClick={e=>{e.stopPropagation();setSelectedId(need.id)}}><span/></button></Marker>)}{reporting&&pin&&<Marker longitude={pin.longitude} latitude={pin.latitude} anchor="bottom"><div className="new-pin"><MapPin/></div></Marker>}</Map><div className="map-tip"><Crosshair size={16}/>Tap anywhere to report at that spot</div><div className="map-views" role="group" aria-label="Map view">{(["streets","3d","satellite"] as const).map(option=><button key={option} type="button" aria-pressed={view===option} onClick={()=>changeView(option)}>{option==="streets"?"Streets":option==="3d"?"3D":"Satellite"}</button>)}</div>{mapError&&<div className="map-error" role="status">Map tiles could not load. Try another view or check your connection.</div>}{selected&&!reporting&&<article className="map-detail"><button className="detail-close" onClick={()=>setSelectedId(null)} aria-label="Close details"><X size={17}/></button><div className="detail-tags"><span className={`status ${detail[selected.kind as keyof typeof detail].className}`}>{detail[selected.kind as keyof typeof detail].label}</span><span className="status-pill">{statusLabels[selected.status]??selected.status}</span></div><h3>{selected.title}</h3><p>{selected.description}</p>{selected.requestType==="jump_start"&&<p className="equipment-hint">Needs: {selected.requiredEquipment?.join(" or ") || "jump-start equipment"}{selected.vehicleType?` · ${selected.vehicleType==="passenger_car"?"passenger car":"light truck"}`:""}</p>}{selected.privateLocationDetails&&<p className="private-location-detail">{selected.privateLocationDetails}</p>}<div className="detail-location">{selected.approximate?<EyeOff size={17}/>:<MapPin size={17}/>}{selected.privateLocation??selected.location}, {selected.city}</div><NeedActions need={selected}/></article>}</div>
     </div>
-    {reporting&&<ReportSheet pin={pin} setPin={setPin} signedIn={signedIn} demo={demo} close={()=>setReporting(false)}/>} 
+    {reporting&&<ReportSheet pin={pin} setPin={setPin} signedIn={signedIn} demo={demo} initialCategory={resumeCategory??undefined} close={()=>setReporting(false)}/>} 
   </section>
 }
 
-function ReportSheet({pin,setPin,signedIn,demo,close}:{pin:{latitude:number;longitude:number}|null;setPin:(p:{latitude:number;longitude:number}|null)=>void;signedIn:boolean;demo:boolean;close:()=>void}){
+function ReportSheet({pin,setPin,signedIn,demo,initialCategory,close}:{pin:{latitude:number;longitude:number}|null;setPin:(p:{latitude:number;longitude:number}|null)=>void;signedIn:boolean;demo:boolean;initialCategory?:string;close:()=>void}){
   const [state,setState]=useState<"idle"|"saving"|"saved"|"error">("idle");
   const [error,setError]=useState("");
   const [locationError,setLocationError]=useState("");
   const [locationBusy,setLocationBusy]=useState(false);
   const [step,setStep]=useState(1);
-  const [category,setCategory]=useState("neighborhood_cleanup");
+  const [category,setCategory]=useState(initialCategory??"neighborhood_cleanup");
   const selectedCategory=REPORT_CATEGORIES.find(item=>item.id===category)??REPORT_CATEGORIES[0];
   const jumpStart=category==="jump_start";
   const petReport=category==="lost_pet"||category==="found_pet";
@@ -71,7 +90,17 @@ function ReportSheet({pin,setPin,signedIn,demo,close}:{pin:{latitude:number;long
     catch{setState("error");setError("We couldn’t save this yet. Please try again.");}
   }
   const gate=demo?<div className="success"><ShieldAlert/><h2>Sample mode</h2><p>Requests can be added once this deployment is connected to a database.</p></div>:null;
-  const privateGate=privateRequest&&!signedIn?<section className="notice"><strong>Private neighbor help needs an account</strong><p>Sign in first so you can review replies and choose who receives your exact location. Your report details have not been entered or lost.</p><div className="button-row"><Link className="primary-button" href="/signin?next=/%23explore">Sign in</Link><Link className="secondary-button" href="/signup?next=/%23explore">Create account</Link></div></section>:null;
+  function saveDraftAndResume(){
+    try{
+      sessionStorage.setItem("civichands-report-resume","1");
+      sessionStorage.setItem("civichands-report-category",category);
+      if(pin)sessionStorage.setItem("civichands-report-pin",JSON.stringify(pin));
+      else sessionStorage.removeItem("civichands-report-pin");
+    }catch{
+      // Authentication still proceeds if browser storage is unavailable.
+    }
+  }
+  const privateGate=privateRequest&&!signedIn?<section className="notice"><strong>Private neighbor help needs an account</strong><p>Sign in first so you can review replies and choose who receives your exact location. We’ll keep your selected category and map location so you can continue after signing in.</p><div className="button-row"><Link className="primary-button" href="/signin?next=/%23explore" onClick={saveDraftAndResume}>Sign in</Link><Link className="secondary-button" href="/signup?next=/%23explore" onClick={saveDraftAndResume}>Create account</Link></div></section>:null;
   const kind=selectedCategory.kind;
   const safetyNotice=kind==="city_hazard"?<div className="safety-note"><ShieldAlert/><span>For immediate danger, call 911 or the responsible utility. CivicHands reports do not dispatch emergency crews. Stay clear of traffic, downed wires, gas leaks, floodwater, and unstable structures.</span></div>:null;
   const serviceGate=externalReferral?<section className="notice"><strong>Use a professional roadside provider</strong><p>CivicHands does not dispatch tow trucks. Contact your roadside-assistance provider and confirm the company, operator, and truck permit fit the service you need. If the vehicle is in immediate danger in traffic, call <a href="tel:911">911</a>. Review <a href="https://www.tdlr.texas.gov/towing/" target="_blank" rel="noreferrer">Texas TDLR towing licenses and consumer information</a>.</p></section>:null;
