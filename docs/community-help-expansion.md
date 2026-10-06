@@ -1,6 +1,6 @@
 # Community help expansion proposal
 
-**Status:** Phase 1 implementation is included on this branch for review. Phases 2–4 remain proposals.
+**Status:** Phase 1 jump-start matching is in production. This branch adds flexible location/category reporting and the bounded Phase 2 lost/found pet flow with one-way private notes. Phase 3 provider dispatch and Phase 4 agency-controlled missing-person case handling remain launch-gated; this branch provides safe handoffs only.
 
 CivicHands already separates public community-ready work, city referrals, and private neighbor support. Keep that separation as the product grows. The app should match a need with an appropriately capable helper or trusted organization, while directing emergencies and regulated work to the responsible professionals.
 
@@ -191,7 +191,7 @@ The reporter should describe the need; CivicHands routes it to the right lane. T
 - A reporter may use device GPS, tap the map, enter an address/landmark/parking-lot location, or continue without a pin. Request GPS only after an explicit tap. Permission denial or map failure must not prevent submission.
 - Use a grouped category dropdown with plain-language choices. The category determines the workflow, so reporters do not need to decide whether a volunteer or city crew should handle it.
 - Title and extra narrative are optional. Use category-specific starter text so someone can submit even when they are unsure what to write.
-- Private neighbor requests require sign-in before the reporter enters details, so the form does not discard their text at an authentication step. Explain that account access lets them review offers and choose who sees their exact location.
+- Private neighbor requests require sign-in before descriptive details are entered. If someone selects a private category while signed out, preserve their chosen category and map pin in the browser session and reopen the report after sign-in. Explain that account access lets them review offers and choose who sees their exact location.
 - Lost/found pet requests use the private neighbor lane. Any signed-in member may send a private sighting or reunification message; the requester chooses whether to accept. Ask for an approximate area and a general description only; keep one identifying detail and exact holding location private, including after an offer is accepted. Do not approach aggressive, injured, or wild animals; route those to animal control, a veterinarian, or a licensed wildlife rehabilitator.
 - Jump-start helpers remain gated to matching equipment and confirmed off-road, standard 12V, hazard-free conditions. This safety gate is intentional. If any condition is uncertain, send the requester to professional roadside help.
 - City and utility hazards can be submitted for follow-up, but CivicHands does not dispatch emergency responders. For immediate danger, call 911 or the responsible utility and stay clear.
@@ -201,6 +201,7 @@ The reporter should describe the need; CivicHands routes it to the right lane. T
 - **Neighbor support:** yardwork; groceries and essentials; carrying a few items; small non-specialist household tasks; temporary accessibility help; basic phone/computer support; translation/form navigation; friendly non-medical check-ins; pet care; lost/found pets; jump starts; tool sharing; community-resource navigation; other safe neighbor help.
 - **Community volunteers:** neighborhood/litter cleanup; park/public-space cleanup; community gardens; event setup; permission-based graffiti cleanup; other small public-space tasks.
 - **City or trained crews:** potholes, sidewalks and curbs; streetlights, signs and signals; blocked drains and non-emergency flooding; large dumping; damaged trees near public spaces; utility hazards; other public infrastructure issues.
+- **Professional referral:** tow or roadside assistance, routed to roadside providers and official Texas towing guidance; never to volunteer matching.
 
 ### Safe handoffs for services CivicHands does not dispatch
 
@@ -210,7 +211,7 @@ The reporter should describe the need; CivicHands routes it to the right lane. T
 
 ### Phase status and launch gates
 
-- **Phase 1 — Jump-start matching:** implemented and production build passes after the audit target fix.
+- **Phase 1 — Jump-start matching:** implemented and production build passes on the current production revision after the audit target fix. This reporting branch still needs a successful preview build before merge.
 - **Phase 2 — Lost/found pets:** moderated lost/found reports and one-way private member-to-reporter sighting notes are included. Exact holding locations are not shown to the responding neighbor. Shelter/animal-control routing, a two-way contact relay, photo moderation, and verified organization accounts remain before a wider rollout.
 - **Phase 3 — Roadside providers:** a safe referral boundary is documented. In-app enrollment/dispatch requires jurisdiction-specific credential and truck-permit verification, insurance/expiry checks, consumer price disclosures, and a local pilot partner.
 - **Phase 4 — Missing-person information:** official resource guidance only. No case intake or public search is enabled. A written agency partnership and content/tip approval workflow are prerequisites.
