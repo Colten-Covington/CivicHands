@@ -1,6 +1,6 @@
 # Community help expansion proposal
 
-**Status:** Product proposal; no new request types are enabled by this document.
+**Status:** Phase 1 implementation is included on this branch for review. Phases 2–4 remain proposals.
 
 CivicHands already separates public community-ready work, city referrals, and private neighbor support. Keep that separation as the product grows. The app should match a need with an appropriately capable helper or trusted organization, while directing emergencies and regulated work to the responsible professionals.
 
@@ -144,10 +144,14 @@ Keep the existing append-only audit model. Put sensitive details in private tabl
 
 ### Phase 1 — Equipment-assisted neighbor help
 
-1. Add helper capability inventory and confirmation dates.
-2. Add the jump-start subtype, safe-location questions, and hazard/traffic stop conditions.
-3. Add eligibility checks on both offer and acceptance, private location sharing, cancel/report paths, and moderator visibility.
-4. Verify that public API and map outputs never reveal exact neighbor locations or contact information.
+Included in this branch:
+- Vetted helpers can self-report jumper cables and/or a portable jump pack, with a confirmation timestamp.
+- Jump-start requests ask for compatible equipment and vehicle type, and require the requester to confirm an off-road location, a standard 12V vehicle, and no visible hazards.
+- Matching checks equipment when a helper offers and again when the requester accepts. Helpers must also affirm the off-road safety boundary.
+- Jump-start titles/descriptions stay generic; vehicle details and exact locations are limited to the requester and accepted helper. The public API exposes only approximate locations and the equipment requested.
+- Public history records the workflow without exposing private vehicle details.
+
+Review and verify these checks against a working preview before considering Phase 1 complete.
 
 ### Phase 2 — Lost/found pets
 
