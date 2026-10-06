@@ -18,7 +18,7 @@ const roleLabels = { member: "Community member", moderator: "Moderator", city_of
 const helperCopy = {
   none: "Vetted helpers can offer neighbor support, where privacy and safety matter most.",
   pending: "Your helper application is being reviewed by an administrator.",
-  approved: "You're a vetted helper. You can offer neighbor support on the map.",
+  approved: "You're a vetted helper. You can offer neighbor support, and list equipment you are willing to bring.",
   rejected: "Your last helper application wasn't approved. You're welcome to apply again with more detail.",
   revoked: "Your vetted helper status was revoked. Please contact the administrators if you have questions.",
 } as const;
@@ -110,7 +110,7 @@ export default async function AccountPage() {
             {offers.map(({ offer, helperName, helperSince, helperStatus }) => { const capability = capabilitiesByHelper.get(offer.helperId); return <div className="offer-card" key={offer.id}>
               <div><strong>{helperName}</strong>{helperStatus === "approved" && <span className="status-pill verified">Vetted helper</span>}</div>
               <small className="muted">Member since {formatWhen(helperSince)} · {completedBy.get(offer.helperId) ?? 0} completed {completedBy.get(offer.helperId) === 1 ? "task" : "tasks"}</small>
-              {need.requestType === "jump_start" && capability && <small className="muted">Equipment confirmed: {[capability.jumperCables ? "Jumper cables" : null, capability.jumpPack ? "Portable jump pack" : null].filter(Boolean).join(" · ") || "No jump-start equipment listed"}</small>}{offer.message && <p>“{offer.message}”</p>}
+              {need.requestType === "jump_start" && capability && <small className="muted">Helper-reported equipment: {[capability.jumperCables ? "Jumper cables" : null, capability.jumpPack ? "Portable jump pack" : null].filter(Boolean).join(" · ") || "No jump-start equipment listed"}</small>}{offer.message && <p>“{offer.message}”</p>}
               {offer.status === "pending" && need.status === "open" ? <OfferResponse offerId={offer.id}/> : <small className="muted">Offer {offer.status}</small>}
             </div>})}
           </li>;
