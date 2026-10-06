@@ -4,7 +4,7 @@ import { and, count, eq, gt, ne } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getDb } from "@/db";
-import { helperApplications, helpOffers, needs, users } from "@/db/schema";
+import { helperApplications, helperCapabilities, helpOffers, jumpStartRequests, needs, users } from "@/db/schema";
 import { fail, ok, type ActionResult, type ActionState } from "@/lib/action-state";
 import { auditInsert } from "@/lib/audit";
 import { getViewer } from "@/lib/auth";
@@ -16,6 +16,13 @@ const reportSchema = z.object({
   title: z.string().trim().min(5).max(100),
   description: z.string().trim().min(10).max(1000),
   kind: z.enum(["public_cleanup", "city_hazard", "neighbor_help"]),
+  requestType: z.enum(["general", "jump_start"]).default("general"),
+  needsCables: z.literal("on").optional(),
+  needsJumpPack: z.literal("on").optional(),
+  vehicleType: z.enum(["passenger_car", "light_truck"]).optional(),
+  safeLocationConfirmed: z.literal("on").optional(),
+  standard12vConfirmed: z.literal("on").optional(),
+  hazardFreeConfirmed: z.literal("on").optional(),
   category: z.string().trim().min(2).max(50),
   location: z.string().trim().min(3).max(160),
   latitude: z.coerce.number().min(-90).max(90),
@@ -25,6 +32,17 @@ const reportSchema = z.object({
 
 const idSchema = z.uuid();
 const messageSchema = z.string().trim().max(500).optional();
+
+async function helperHasJumpStartGear(helperId: string, needId: string) {
+  const [[request], [capability]] = await Promise.all([
+    getDb().select().from(jumpStartRequests).where(eq(jumpStartRequests.needId, needId)).limit(1),
+    getDb().select().from(helperCapabilities).where(eq(helperCapabilities.userId, helperId)).limit(1),
+  ]);
+  return Boolean(request && capability && (
+    (request.needsCables && capability.jumperCables) ||
+    (request.needsJumpPack && capability.jumpPack)
+  ));
+}
 
 function refresh(needId?: string) {
   revalidatePath("/");
@@ -40,6 +58,13 @@ export async function createNeed(input: unknown): Promise<ActionResult & { id?: 
   if (!parsed.success) return fail("Please check the report details.");
   const data = parsed.data;
   if (!viewer && data.kind === "neighbor_help") return fail("Please sign in to request help at home.");
+  if (data.requestType === "jump_start") {
+    if (data.kind !== "neighbor_help") return fail("Jump starts must be private neighbor-support requests.");
+    if (!data.needsCables && !data.needsJumpPack) return fail("Choose whether the helper needs cables, a jump pack, or either.");
+    if (!data.vehicleType || data.safeLocationConfirmed !== "on" || data.standard12vConfirmed !== "on" || data.hazardFreeConfirmed !== "on") {
+      return fail("Jump-start requests require a safe off-road location, a standard 12V vehicle, and no visible battery or vehicle hazards. If those conditions are not met, contact roadside assistance.");
+    }
+  }
 
   if (viewer) {
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -48,11 +73,17 @@ export async function createNeed(input: unknown): Promise<ActionResult & { id?: 
   }
 
   const isNeighbor = data.kind === "neighbor_help";
+  const isJumpStart = data.requestType === "jump_start";
+  const { requestType, needsCables, needsJumpPack, vehicleType, safeLocationConfirmed, standard12vConfirmed, hazardFreeConfirmed, ...needData } = data;
   const needId = randomUUID();
   await getDb().batch([
     getDb().insert(needs).values({
       id: needId,
-      ...data,
+      ...needData,
+      title: isJumpStart ? "Jump start needed" : data.title,
+      description: isJumpStart ? "A neighbor is requesting a jump start with compatible equipment. Exact details are shared only with the accepted helper." : data.description,
+      category: isJumpStart ? "Jump start" : data.category,
+      requestType,
       location: isNeighbor ? APPROXIMATE_LOCATION : data.location,
       privateLocation: isNeighbor ? data.location : null,
       reporterId: viewer?.id ?? null,
@@ -60,6 +91,15 @@ export async function createNeed(input: unknown): Promise<ActionResult & { id?: 
       status: data.kind === "city_hazard" ? "referred" : "open",
       reviewStatus: "pending",
     }),
+    ...(isJumpStart ? [getDb().insert(jumpStartRequests).values({
+      needId,
+      needsCables: Boolean(needsCables),
+      needsJumpPack: Boolean(needsJumpPack),
+      vehicleType: vehicleType!,
+      safeLocationConfirmed: safeLocationConfirmed === "on",
+      standard12vConfirmed: standard12vConfirmed === "on",
+      hazardFreeConfirmed: hazardFreeConfirmed === "on",
+    })] : []),
     auditInsert(viewer, {
       action: "need.created",
       targetType: "need",
@@ -114,6 +154,9 @@ export async function offerHelp(needId: string, message?: string): Promise<Actio
   if (need.reporterId === viewer.id) return fail("You can't offer help on your own report.");
   if (need.status !== "open") return fail("Someone is already helping with this one.");
   if (need.kind === "neighbor_help" && viewer.helperStatus !== "approved") return fail("Neighbor support is limited to vetted helpers. Apply from your account page.");
+  if (need.requestType === "jump_start" && !await helperHasJumpStartGear(viewer.id, needId)) {
+    return fail("Your equipment profile does not match this request. Confirm your cables or jump pack on your account page.");
+  }
 
   const [existing] = await getDb().select().from(helpOffers).where(and(eq(helpOffers.needId, needId), eq(helpOffers.helperId, viewer.id))).limit(1);
   if (existing && existing.status !== "withdrawn") return fail("You've already offered to help with this report.");
@@ -192,6 +235,9 @@ export async function respondToOffer(offerId: string, accept: boolean): Promise<
     const [helper] = await getDb().select({ helperStatus: users.helperStatus, suspendedAt: users.suspendedAt }).from(users).where(eq(users.id, row.offer.helperId)).limit(1);
     if (!helper || helper.helperStatus !== "approved" || helper.suspendedAt) return fail("This helper is no longer vetted, so their offer can't be accepted.");
   }
+  if (row.need.requestType === "jump_start" && !await helperHasJumpStartGear(row.offer.helperId, needId)) {
+    return fail("This helper's equipment is no longer available for this request.");
+  }
 
   // Accept only if the offer is still pending (the helper may have just withdrawn), then claim the report.
   const [accepted] = await getDb().update(helpOffers).set({ status: "accepted", respondedAt: now }).where(and(eq(helpOffers.id, offerId), eq(helpOffers.status, "pending"))).returning({ id: helpOffers.id });
@@ -249,4 +295,41 @@ export async function applyAsHelper(_prev: ActionState, formData: FormData): Pro
   ]);
   refresh();
   return ok("Application submitted. An administrator will review it.");
+}
+
+
+/** Helpers can update and re-confirm the equipment they are willing to bring. */
+export async function updateHelperCapabilities(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const viewer = await getViewer();
+  if (!viewer) return fail("Please sign in.");
+  if (viewer.helperStatus !== "approved") return fail("Only vetted helpers can list equipment.");
+  const parsed = z.object({
+    jumperCables: z.literal("on").optional(),
+    jumpPack: z.literal("on").optional(),
+  }).safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return fail("Please check the equipment selections.");
+  const now = new Date();
+  await getDb().batch([
+    getDb().insert(helperCapabilities).values({
+      userId: viewer.id,
+      jumperCables: parsed.data.jumperCables === "on",
+      jumpPack: parsed.data.jumpPack === "on",
+      confirmedAt: now,
+    }).onConflictDoUpdate({
+      target: helperCapabilities.userId,
+      set: {
+        jumperCables: parsed.data.jumperCables === "on",
+        jumpPack: parsed.data.jumpPack === "on",
+        confirmedAt: now,
+      },
+    }),
+    auditInsert(viewer, {
+      action: "helper.capabilities_updated",
+      targetType: "helper_capability",
+      targetId: viewer.id,
+      publicSummary: "A vetted helper updated their equipment availability.",
+    }),
+  ]);
+  refresh();
+  return ok("Equipment availability saved and confirmed.");
 }
